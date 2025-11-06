@@ -97,72 +97,6 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return PacketSignal.UNHANDLED;
     }
 
-    // Get client's runtime entity ID from StartGamePacket
-    @Override
-    public PacketSignal handle(StartGamePacket packet) {
-        // Set the client's runtime ID in hit detector
-        player.getHitDetector().setClientRuntimeId(packet.getRuntimeEntityId());
-        log.info("Client runtime entity ID: {}", packet.getRuntimeEntityId());
-
-        // Original StartGame handling continues below
-        return handleStartGameOriginal(packet);
-    }
-
-    private PacketSignal handleStartGameOriginal(StartGamePacket packet) {
-        if (ProxyPass.CODEC.getProtocolVersion() < 776) {
-            List<DataEntry> itemData = new ArrayList<>();
-
-            LinkedHashMap<String, Integer> legacyItems = new LinkedHashMap<>();
-            LinkedHashMap<String, Integer> legacyBlocks = new LinkedHashMap<>();
-
-            for (ItemDefinition entry : packet.getItemDefinitions()) {
-                if (entry.getRuntimeId() > 255) {
-                    legacyItems.putIfAbsent(entry.getIdentifier(), entry.getRuntimeId());
-                } else {
-                    String id = entry.getIdentifier();
-                    if (id.contains(":item.")) {
-                        id = id.replace(":item.", ":");
-                    }
-                    if (entry.getRuntimeId() > 0) {
-                        legacyBlocks.putIfAbsent(id, entry.getRuntimeId());
-                    } else {
-                        legacyBlocks.putIfAbsent(id, 255 - entry.getRuntimeId());
-                    }
-                }
-
-                itemData.add(new DataEntry(entry.getIdentifier(), entry.getRuntimeId(), -1, false));
-                ProxyPass.legacyIdMap.put(entry.getRuntimeId(), entry.getIdentifier());
-            }
-
-            SimpleDefinitionRegistry<ItemDefinition> itemDefinitions = SimpleDefinitionRegistry.<ItemDefinition>builder()
-                    .addAll(packet.getItemDefinitions())
-                    .add(new SimpleItemDefinition("minecraft:empty", 0, false))
-                    .build();
-
-            this.session.getPeer().getCodecHelper().setItemDefinitions(itemDefinitions);
-            player.getUpstream().getPeer().getCodecHelper().setItemDefinitions(itemDefinitions);
-
-            itemData.sort(Comparator.comparing(o -> o.name));
-
-            proxy.saveJson("legacy_block_ids.json", sortMap(legacyBlocks));
-            proxy.saveJson("legacy_item_ids.json", sortMap(legacyItems));
-            proxy.saveJson("runtime_item_states.json", itemData);
-        }
-
-
-        DefinitionRegistry<BlockDefinition> registry;
-        if (packet.isBlockNetworkIdsHashed()) {
-            registry = this.proxy.getBlockDefinitionsHashed();
-        } else {
-            registry = this.proxy.getBlockDefinitions();
-        }
-
-        this.session.getPeer().getCodecHelper().setBlockDefinitions(registry);
-        player.getUpstream().getPeer().getCodecHelper().setBlockDefinitions(registry);
-
-        return PacketSignal.UNHANDLED;
-    }
-
     @Override
     public PacketSignal handle(AvailableEntityIdentifiersPacket packet) {
         proxy.saveNBT("entity_identifiers", packet.getIdentifiers());
@@ -205,6 +139,10 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
 
     @Override
     public PacketSignal handle(StartGamePacket packet) {
+        // HIT DETECTOR: Set the client's runtime ID
+        player.getHitDetector().setClientRuntimeId(packet.getRuntimeEntityId());
+        log.info("Client runtime entity ID: {}", packet.getRuntimeEntityId());
+
         if (ProxyPass.CODEC.getProtocolVersion() < 776) {
             List<DataEntry> itemData = new ArrayList<>();
 
