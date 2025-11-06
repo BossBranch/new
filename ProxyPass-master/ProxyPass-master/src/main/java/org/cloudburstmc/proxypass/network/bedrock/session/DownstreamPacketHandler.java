@@ -38,6 +38,130 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     private final ProxyPass proxy;
 
     private final List<NbtMap> entityProperties = new ArrayList<>();
+    private long lastSwingTime = 0;
+    private long lastSwingPlayerId = 0;
+
+    // Track player when they join the world
+    @Override
+    public PacketSignal handle(AddPlayerPacket packet) {
+        player.getHitDetector().addPlayer(
+            packet.getRuntimeEntityId(),
+            packet.getUsername(),
+            packet.getPosition()
+        );
+        log.debug("Player added: {} (ID: {})", packet.getUsername(), packet.getRuntimeEntityId());
+        return PacketSignal.UNHANDLED;
+    }
+
+    // Update player position when they move
+    @Override
+    public PacketSignal handle(MovePlayerPacket packet) {
+        player.getHitDetector().updatePlayerPosition(
+            packet.getRuntimeEntityId(),
+            packet.getPosition()
+        );
+        return PacketSignal.UNHANDLED;
+    }
+
+    // Track animation (swing arm) which indicates attack
+    @Override
+    public PacketSignal handle(AnimatePacket packet) {
+        if (packet.getAction() == AnimatePacket.Action.SWING_ARM) {
+            lastSwingPlayerId = packet.getRuntimeEntityId();
+            lastSwingTime = System.currentTimeMillis();
+            log.debug("Player {} swung arm", packet.getRuntimeEntityId());
+        }
+        return PacketSignal.UNHANDLED;
+    }
+
+    // Detect when client receives damage
+    @Override
+    public PacketSignal handle(EntityEventPacket packet) {
+        // Check if this is HURT event on the client
+        if (packet.getType() == org.cloudburstmc.protocol.bedrock.data.entity.EntityEventType.HURT) {
+            long victimId = packet.getRuntimeEntityId();
+
+            // Check if the victim is the client
+            // We'll need to track client's runtime ID from StartGamePacket
+
+            // If someone swung recently (within 500ms), they probably hit
+            long timeSinceSwing = System.currentTimeMillis() - lastSwingTime;
+            if (lastSwingPlayerId != 0 && timeSinceSwing < 500) {
+                // Get attacker position from packet player position
+                org.cloudburstmc.math.vector.Vector3f attackerPos = player.getHitDetector().getPlayerPosition(lastSwingPlayerId);
+                if (attackerPos != null) {
+                    player.getHitDetector().onHitReceived(lastSwingPlayerId, attackerPos);
+                }
+            }
+        }
+        return PacketSignal.UNHANDLED;
+    }
+
+    // Get client's runtime entity ID from StartGamePacket
+    @Override
+    public PacketSignal handle(StartGamePacket packet) {
+        // Set the client's runtime ID in hit detector
+        player.getHitDetector().setClientRuntimeId(packet.getRuntimeEntityId());
+        log.info("Client runtime entity ID: {}", packet.getRuntimeEntityId());
+
+        // Original StartGame handling continues below
+        return handleStartGameOriginal(packet);
+    }
+
+    private PacketSignal handleStartGameOriginal(StartGamePacket packet) {
+        if (ProxyPass.CODEC.getProtocolVersion() < 776) {
+            List<DataEntry> itemData = new ArrayList<>();
+
+            LinkedHashMap<String, Integer> legacyItems = new LinkedHashMap<>();
+            LinkedHashMap<String, Integer> legacyBlocks = new LinkedHashMap<>();
+
+            for (ItemDefinition entry : packet.getItemDefinitions()) {
+                if (entry.getRuntimeId() > 255) {
+                    legacyItems.putIfAbsent(entry.getIdentifier(), entry.getRuntimeId());
+                } else {
+                    String id = entry.getIdentifier();
+                    if (id.contains(":item.")) {
+                        id = id.replace(":item.", ":");
+                    }
+                    if (entry.getRuntimeId() > 0) {
+                        legacyBlocks.putIfAbsent(id, entry.getRuntimeId());
+                    } else {
+                        legacyBlocks.putIfAbsent(id, 255 - entry.getRuntimeId());
+                    }
+                }
+
+                itemData.add(new DataEntry(entry.getIdentifier(), entry.getRuntimeId(), -1, false));
+                ProxyPass.legacyIdMap.put(entry.getRuntimeId(), entry.getIdentifier());
+            }
+
+            SimpleDefinitionRegistry<ItemDefinition> itemDefinitions = SimpleDefinitionRegistry.<ItemDefinition>builder()
+                    .addAll(packet.getItemDefinitions())
+                    .add(new SimpleItemDefinition("minecraft:empty", 0, false))
+                    .build();
+
+            this.session.getPeer().getCodecHelper().setItemDefinitions(itemDefinitions);
+            player.getUpstream().getPeer().getCodecHelper().setItemDefinitions(itemDefinitions);
+
+            itemData.sort(Comparator.comparing(o -> o.name));
+
+            proxy.saveJson("legacy_block_ids.json", sortMap(legacyBlocks));
+            proxy.saveJson("legacy_item_ids.json", sortMap(legacyItems));
+            proxy.saveJson("runtime_item_states.json", itemData);
+        }
+
+
+        DefinitionRegistry<BlockDefinition> registry;
+        if (packet.isBlockNetworkIdsHashed()) {
+            registry = this.proxy.getBlockDefinitionsHashed();
+        } else {
+            registry = this.proxy.getBlockDefinitions();
+        }
+
+        this.session.getPeer().getCodecHelper().setBlockDefinitions(registry);
+        player.getUpstream().getPeer().getCodecHelper().setBlockDefinitions(registry);
+
+        return PacketSignal.UNHANDLED;
+    }
 
     @Override
     public PacketSignal handle(AvailableEntityIdentifiersPacket packet) {
