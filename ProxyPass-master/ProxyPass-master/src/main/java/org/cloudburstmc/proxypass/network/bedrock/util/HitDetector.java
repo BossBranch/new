@@ -82,11 +82,12 @@ public class HitDetector {
      */
     public void onHitReceived(long attackerRuntimeId, Vector3f attackerPosition) {
         // Get client position
-        Vector3f clientPosition = players.get(clientRuntimeId);
-        if (clientPosition == null) {
+        PlayerInfo clientInfo = players.get(clientRuntimeId);
+        if (clientInfo == null) {
             log.warn("Client position not tracked yet");
             return;
         }
+        Vector3f clientPosition = clientInfo.getPosition();
 
         // Get attacker info
         String attackerName = getPlayerUsername(attackerRuntimeId);
