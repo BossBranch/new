@@ -77,21 +77,34 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     // Detect when client receives damage
     @Override
     public PacketSignal handle(EntityEventPacket packet) {
-        // Check if this is HURT event on the client
+        // Check if this is HURT event
         if (packet.getType() == org.cloudburstmc.protocol.bedrock.data.entity.EntityEventType.HURT) {
             long victimId = packet.getRuntimeEntityId();
+            long clientRuntimeId = player.getHitDetector().getClientRuntimeId();
 
-            // Check if the victim is the client
-            // We'll need to track client's runtime ID from StartGamePacket
+            // IMPORTANT: Only process if the victim is the client
+            if (victimId != clientRuntimeId) {
+                return PacketSignal.UNHANDLED;
+            }
 
-            // If someone swung recently (within 500ms), they probably hit
+            log.debug("Client received HURT event! victimId={}, clientId={}", victimId, clientRuntimeId);
+
+            // If someone swung recently (within 500ms), they probably hit us
             long timeSinceSwing = System.currentTimeMillis() - lastSwingTime;
+            log.debug("Time since last swing: {}ms from player {}", timeSinceSwing, lastSwingPlayerId);
+
             if (lastSwingPlayerId != 0 && timeSinceSwing < 500) {
-                // Get attacker position from packet player position
+                // Get attacker position
                 org.cloudburstmc.math.vector.Vector3f attackerPos = player.getHitDetector().getPlayerPosition(lastSwingPlayerId);
                 if (attackerPos != null) {
+                    log.debug("Calling onHitReceived for attacker {}", lastSwingPlayerId);
                     player.getHitDetector().onHitReceived(lastSwingPlayerId, attackerPos);
+                } else {
+                    log.warn("Attacker position not found for ID: {}", lastSwingPlayerId);
                 }
+            } else {
+                log.debug("No recent swing or swing too old. lastSwingPlayerId={}, timeSince={}ms",
+                    lastSwingPlayerId, timeSinceSwing);
             }
         }
         return PacketSignal.UNHANDLED;
@@ -154,6 +167,16 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         // HIT DETECTOR: Set the client's runtime ID
         player.getHitDetector().setClientRuntimeId(packet.getRuntimeEntityId());
         log.info("Client runtime entity ID: {}", packet.getRuntimeEntityId());
+
+        // HIT DETECTOR: Add client to players map with initial position
+        String clientUsername = player.getIdentityData().displayName;
+        org.cloudburstmc.math.vector.Vector3f initialPos = packet.getPlayerPosition();
+        player.getHitDetector().addPlayer(
+            packet.getRuntimeEntityId(),
+            clientUsername,
+            initialPos
+        );
+        log.info("Client added to HitDetector: {} at {}", clientUsername, initialPos);
 
         if (ProxyPass.CODEC.getProtocolVersion() < 776) {
             List<DataEntry> itemData = new ArrayList<>();

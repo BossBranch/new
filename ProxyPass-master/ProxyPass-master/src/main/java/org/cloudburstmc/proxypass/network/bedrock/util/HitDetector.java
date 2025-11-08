@@ -35,6 +35,16 @@ public class HitDetector {
     public void setClientRuntimeId(long runtimeId) {
         this.clientRuntimeId = runtimeId;
         log.info("Client runtime ID set to: {}", runtimeId);
+
+        // Add client to players map with initial position from StartGamePacket
+        // Position will be updated later via MovePlayerPacket
+    }
+
+    /**
+     * Get client's runtime entity ID
+     */
+    public long getClientRuntimeId() {
+        return clientRuntimeId;
     }
 
     /**
@@ -121,6 +131,8 @@ public class HitDetector {
      * @param attackerPosition The position where attack originated (from packet)
      */
     public void onHitReceived(long attackerRuntimeId, Vector3f attackerPosition) {
+        log.debug("onHitReceived called! attackerId={}, position={}", attackerRuntimeId, attackerPosition);
+
         // Check if this is thorns damage (we recently attacked this entity)
         if (isThornsHit(attackerRuntimeId)) {
             String attackerName = getPlayerUsername(attackerRuntimeId);
@@ -131,22 +143,28 @@ public class HitDetector {
         }
 
         // Get client position
+        log.debug("Getting client position for ID: {}", clientRuntimeId);
+        log.debug("Players map size: {}, contains client: {}", players.size(), players.containsKey(clientRuntimeId));
+
         PlayerInfo clientInfo = players.get(clientRuntimeId);
         if (clientInfo == null) {
-            log.warn("Client position not tracked yet");
+            log.warn("Client position not tracked yet! clientId={}, playersMap={}", clientRuntimeId, players.keySet());
             return;
         }
         Vector3f clientPosition = clientInfo.getPosition();
+        log.debug("Client position: {}", clientPosition);
 
         // Get attacker info
         String attackerName = getPlayerUsername(attackerRuntimeId);
         Vector3f trackedAttackerPosition = getPlayerPosition(attackerRuntimeId);
+        log.debug("Attacker name: {}, tracked position: {}", attackerName, trackedAttackerPosition);
 
         // Use tracked position if available, otherwise use position from packet
         Vector3f actualAttackerPosition = trackedAttackerPosition != null ? trackedAttackerPosition : attackerPosition;
 
         // Calculate distance
         double distance = calculateDistance(clientPosition, actualAttackerPosition);
+        log.debug("Calculated distance: {} blocks", distance);
 
         // Get attacker's weapon
         String weapon = playerWeapons.get(attackerRuntimeId);
@@ -158,8 +176,18 @@ public class HitDetector {
         }
 
         // Send message to client chat
-        sendChatMessage(String.format("§c[HIT] §f%s§7 hit you from §e%.2f§7 blocks%s",
-            attackerName, distance, weaponInfo));
+        String message = String.format("§c[HIT] §f%s§7 hit you from §e%.2f§7 blocks%s",
+            attackerName, distance, weaponInfo);
+        log.info("Sending hit message to client: {}", message);
+        sendChatMessage(message);
+
+        // Also log to console
+        System.out.println("==================================");
+        System.out.println("[HIT DETECTED]");
+        System.out.println("Attacker: " + attackerName + " (ID: " + attackerRuntimeId + ")");
+        System.out.println("Distance: " + String.format("%.2f", distance) + " blocks");
+        System.out.println("Weapon: " + (weapon != null ? weapon : "unknown"));
+        System.out.println("==================================");
 
         log.info("Hit detected: {} -> client from {} blocks with {} (attacker pos: {}, client pos: {})",
             attackerName, distance, weapon, actualAttackerPosition, clientPosition);
