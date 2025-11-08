@@ -34,6 +34,12 @@ public class DownstreamInitialPacketHandler implements BedrockPacketHandler {
         log.info("Compression algorithm picked {}", packet.getCompressionAlgorithm());
 
         this.session.sendPacketImmediately(this.loginPacket);
+
+        // Set DownstreamPacketHandler immediately for servers without encryption
+        // If server requires encryption, it will be reset in ServerToClientHandshakePacket handler
+        this.session.setPacketHandler(new DownstreamPacketHandler(this.session, this.player, this.proxy));
+        log.info("DownstreamPacketHandler set (will be reset if encryption is required)");
+
         return PacketSignal.HANDLED;
     }
 
