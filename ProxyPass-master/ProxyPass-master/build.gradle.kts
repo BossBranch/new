@@ -44,13 +44,20 @@ tasks.shadowJar {
     archiveVersion.set("")
     transform(Log4j2PluginsCacheFileTransformer())
 
-    // Copy config.yml to build/libs after building
+    // Auto-copy config.yml to build/libs after building
     doLast {
-        val configSource = file("src/main/resources/config.yml")
+        val configExample = file("config.yml.example")
         val configDest = file("build/libs/config.yml")
-        if (configSource.exists()) {
-            configSource.copyTo(configDest, overwrite = true)
-            println("Config.yml copied to build/libs/")
+
+        // Only copy if user doesn't have config.yml yet
+        if (!configDest.exists() && configExample.exists()) {
+            configExample.copyTo(configDest, overwrite = false)
+            println("✅ config.yml created in build/libs/ from example")
+            println("📝 Edit build/libs/config.yml to configure your proxy")
+        } else if (configDest.exists()) {
+            println("ℹ️  config.yml already exists in build/libs/ (not overwriting)")
+        } else {
+            println("⚠️  Warning: config.yml.example not found!")
         }
     }
 }
