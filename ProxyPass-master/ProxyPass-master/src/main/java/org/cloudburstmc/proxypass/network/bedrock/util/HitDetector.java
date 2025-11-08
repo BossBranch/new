@@ -55,6 +55,11 @@ public class HitDetector {
         log.debug("Player tracked: {} (ID: {}) at {}", username, runtimeId, position);
     }
 
+    public void addPlayer(long runtimeId, String username, Vector3f position, Vector3f rotation) {
+        players.put(runtimeId, new PlayerInfo(username, position, rotation));
+        log.debug("Player tracked: {} (ID: {}) at {} rotation {}", username, runtimeId, position, rotation);
+    }
+
     /**
      * Update player position
      */
@@ -66,11 +71,30 @@ public class HitDetector {
     }
 
     /**
+     * Update player position and rotation
+     */
+    public void updatePlayerPositionAndRotation(long runtimeId, Vector3f position, Vector3f rotation) {
+        PlayerInfo info = players.get(runtimeId);
+        if (info != null) {
+            info.setPosition(position);
+            info.setRotation(rotation);
+        }
+    }
+
+    /**
      * Get player position
      */
     public Vector3f getPlayerPosition(long runtimeId) {
         PlayerInfo info = players.get(runtimeId);
         return info != null ? info.getPosition() : null;
+    }
+
+    /**
+     * Get player rotation (pitch, yaw, headYaw)
+     */
+    public Vector3f getPlayerRotation(long runtimeId) {
+        PlayerInfo info = players.get(runtimeId);
+        return info != null ? info.getRotation() : null;
     }
 
     /**
@@ -166,6 +190,18 @@ public class HitDetector {
         double distance = calculateDistance(clientPosition, actualAttackerPosition);
         log.debug("Calculated distance: {} blocks", distance);
 
+        // Calculate aim angle (crosshair offset)
+        Vector3f attackerRotation = getPlayerRotation(attackerRuntimeId);
+        double aimAngle = -1.0;
+        String aimInfo = "";
+        if (attackerRotation != null) {
+            aimAngle = calculateAimAngle(actualAttackerPosition, attackerRotation, clientPosition);
+            aimInfo = String.format(" §8[§6%.1f°§8]", aimAngle);
+            log.debug("Calculated aim angle: {}°", aimAngle);
+        } else {
+            log.warn("Attacker rotation not available for ID: {}", attackerRuntimeId);
+        }
+
         // Get attacker's weapon
         String weapon = playerWeapons.get(attackerRuntimeId);
         String weaponInfo = "";
@@ -176,8 +212,8 @@ public class HitDetector {
         }
 
         // Send message to client chat
-        String message = String.format("§c[HIT] §f%s§7 hit you from §e%.2f §7blocks%s",
-            attackerName, distance, weaponInfo);
+        String message = String.format("§c[HIT] §f%s§7 hit you from §e%.2f §7blocks%s%s",
+            attackerName, distance, weaponInfo, aimInfo);
         log.info("Sending hit message to client: {}", message);
         sendChatMessage(message);
 
@@ -187,10 +223,14 @@ public class HitDetector {
         System.out.println("Attacker: " + attackerName + " (ID: " + attackerRuntimeId + ")");
         System.out.println("Distance: " + String.format("%.2f", distance) + " blocks");
         System.out.println("Weapon: " + (weapon != null ? weapon : "unknown"));
+        if (aimAngle >= 0) {
+            System.out.println("Aim Angle: " + String.format("%.1f", aimAngle) + "° (0° = perfect aim)");
+        }
         System.out.println("==================================");
 
-        log.info("Hit detected: {} -> client from {} blocks with {} (attacker pos: {}, client pos: {})",
-            attackerName, distance, weapon, actualAttackerPosition, clientPosition);
+        log.info("Hit detected: {} -> client from {} blocks with {} at {}° angle (attacker pos: {}, client pos: {})",
+            attackerName, distance, weapon, aimAngle >= 0 ? String.format("%.1f", aimAngle) : "N/A",
+            actualAttackerPosition, clientPosition);
     }
 
     /**
@@ -201,6 +241,49 @@ public class HitDetector {
         double dy = pos1.getY() - pos2.getY();
         double dz = pos1.getZ() - pos2.getZ();
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * Calculate aim angle (crosshair offset) in degrees
+     * Returns the angle between attacker's look direction and direction to target
+     * 0° = perfect aim, higher = worse aim
+     */
+    private double calculateAimAngle(Vector3f attackerPos, Vector3f attackerRotation, Vector3f targetPos) {
+        // Get pitch and yaw from rotation (rotation = pitch, yaw, headYaw)
+        float pitch = attackerRotation.getX();
+        float yaw = attackerRotation.getY();
+
+        // Convert to radians
+        double yawRad = Math.toRadians(yaw);
+        double pitchRad = Math.toRadians(pitch);
+
+        // Calculate look direction vector from pitch and yaw
+        double lookX = -Math.sin(yawRad) * Math.cos(pitchRad);
+        double lookY = -Math.sin(pitchRad);
+        double lookZ = Math.cos(yawRad) * Math.cos(pitchRad);
+
+        // Calculate direction to target
+        double toTargetX = targetPos.getX() - attackerPos.getX();
+        double toTargetY = targetPos.getY() - attackerPos.getY();
+        double toTargetZ = targetPos.getZ() - attackerPos.getZ();
+
+        // Normalize toTarget vector
+        double targetLength = Math.sqrt(toTargetX * toTargetX + toTargetY * toTargetY + toTargetZ * toTargetZ);
+        if (targetLength < 0.001) return 0.0; // Avoid division by zero
+
+        toTargetX /= targetLength;
+        toTargetY /= targetLength;
+        toTargetZ /= targetLength;
+
+        // Calculate dot product
+        double dotProduct = lookX * toTargetX + lookY * toTargetY + lookZ * toTargetZ;
+
+        // Clamp dot product to [-1, 1] to avoid NaN from acos
+        dotProduct = Math.max(-1.0, Math.min(1.0, dotProduct));
+
+        // Calculate angle in degrees
+        double angleRad = Math.acos(dotProduct);
+        return Math.toDegrees(angleRad);
     }
 
     /**
@@ -225,10 +308,17 @@ public class HitDetector {
     private static class PlayerInfo {
         private final String username;
         private Vector3f position;
+        private Vector3f rotation; // pitch, yaw, headYaw
 
-        public PlayerInfo(String username, Vector3f position) {
+        public PlayerInfo(String username, Vector3f position, Vector3f rotation) {
             this.username = username;
             this.position = position;
+            this.rotation = rotation != null ? rotation : Vector3f.ZERO;
+        }
+
+        // Convenience constructor for backward compatibility
+        public PlayerInfo(String username, Vector3f position) {
+            this(username, position, Vector3f.ZERO);
         }
     }
 }
