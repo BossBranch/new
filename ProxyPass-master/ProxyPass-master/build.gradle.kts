@@ -43,6 +43,16 @@ tasks.shadowJar {
     archiveClassifier.set("")
     archiveVersion.set("")
     transform(Log4j2PluginsCacheFileTransformer())
+
+    // Copy config.yml to build/libs after building
+    doLast {
+        val configSource = file("src/main/resources/config.yml")
+        val configDest = file("build/libs/config.yml")
+        if (configSource.exists()) {
+            configSource.copyTo(configDest, overwrite = true)
+            println("Config.yml copied to build/libs/")
+        }
+    }
 }
 
 tasks.named<JavaExec>("run") {
