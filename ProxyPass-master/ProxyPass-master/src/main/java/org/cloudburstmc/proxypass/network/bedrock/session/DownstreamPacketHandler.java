@@ -63,6 +63,16 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return PacketSignal.UNHANDLED;
     }
 
+    // Track other players' movement (for other entities, server sends MoveEntityAbsolutePacket)
+    @Override
+    public PacketSignal handle(MoveEntityAbsolutePacket packet) {
+        player.getHitDetector().updatePlayerPosition(
+            packet.getRuntimeEntityId(),
+            packet.getPosition()
+        );
+        return PacketSignal.UNHANDLED;
+    }
+
     // Track animation (swing arm) which indicates attack
     @Override
     public PacketSignal handle(AnimatePacket packet) {

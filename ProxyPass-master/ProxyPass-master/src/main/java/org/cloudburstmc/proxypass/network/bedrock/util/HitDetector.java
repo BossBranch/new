@@ -176,7 +176,7 @@ public class HitDetector {
         }
 
         // Send message to client chat
-        String message = String.format("§c[HIT] §f%s§7 hit you from §e%.2f§7 blocks%s",
+        String message = String.format("§c[HIT] §f%s§7 hit you from §e%.2f §7blocks%s",
             attackerName, distance, weaponInfo);
         log.info("Sending hit message to client: {}", message);
         sendChatMessage(message);
