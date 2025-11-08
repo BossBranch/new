@@ -18,7 +18,12 @@ public class HitDetector {
 
     private final ProxyPlayerSession session;
     private final Map<Long, PlayerInfo> players = new ConcurrentHashMap<>();
+    private final Map<Long, Long> recentClientAttacks = new ConcurrentHashMap<>();
+    private final Map<Long, String> playerWeapons = new ConcurrentHashMap<>();
     private long clientRuntimeId = 0;
+
+    // Time window to ignore thorns damage after client attack (milliseconds)
+    private static final long THORNS_IGNORE_WINDOW = 300;
 
     public HitDetector(ProxyPlayerSession session) {
         this.session = session;
@@ -71,7 +76,42 @@ public class HitDetector {
      */
     public void removePlayer(long runtimeId) {
         players.remove(runtimeId);
+        playerWeapons.remove(runtimeId);
+        recentClientAttacks.remove(runtimeId);
         log.debug("Player removed from tracking: {}", runtimeId);
+    }
+
+    /**
+     * Record when client attacks an entity
+     * Used to detect thorns damage
+     */
+    public void recordClientAttack(long targetRuntimeId) {
+        recentClientAttacks.put(targetRuntimeId, System.currentTimeMillis());
+        log.debug("Client attacked entity: {}", targetRuntimeId);
+    }
+
+    /**
+     * Update player's equipped weapon
+     */
+    public void updatePlayerWeapon(long runtimeId, String itemIdentifier) {
+        playerWeapons.put(runtimeId, itemIdentifier);
+        log.debug("Player {} weapon updated: {}", runtimeId, itemIdentifier);
+    }
+
+    /**
+     * Check if damage is likely from thorns (client recently attacked this entity)
+     */
+    private boolean isThornsHit(long attackerRuntimeId) {
+        Long lastAttackTime = recentClientAttacks.get(attackerRuntimeId);
+        if (lastAttackTime != null) {
+            long timeSinceAttack = System.currentTimeMillis() - lastAttackTime;
+            if (timeSinceAttack < THORNS_IGNORE_WINDOW) {
+                // This is thorns damage - remove from tracking
+                recentClientAttacks.remove(attackerRuntimeId);
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -81,6 +121,15 @@ public class HitDetector {
      * @param attackerPosition The position where attack originated (from packet)
      */
     public void onHitReceived(long attackerRuntimeId, Vector3f attackerPosition) {
+        // Check if this is thorns damage (we recently attacked this entity)
+        if (isThornsHit(attackerRuntimeId)) {
+            String attackerName = getPlayerUsername(attackerRuntimeId);
+            log.info("Thorns damage ignored from: {}", attackerName);
+            // Optionally show thorns message
+            // sendChatMessage(String.format("§6[THORNS] §7%s", attackerName));
+            return;
+        }
+
         // Get client position
         PlayerInfo clientInfo = players.get(clientRuntimeId);
         if (clientInfo == null) {
@@ -99,12 +148,21 @@ public class HitDetector {
         // Calculate distance
         double distance = calculateDistance(clientPosition, actualAttackerPosition);
 
-        // Send message to client chat
-        sendChatMessage(String.format("§c[HIT] §f%s §7hit you from §e%.2f §7blocks",
-            attackerName, distance));
+        // Get attacker's weapon
+        String weapon = playerWeapons.get(attackerRuntimeId);
+        String weaponInfo = "";
+        if (weapon != null && !weapon.equals("minecraft:air")) {
+            // Remove minecraft: prefix and make readable
+            String weaponName = weapon.replace("minecraft:", "").replace("_", " ");
+            weaponInfo = String.format(" §8[§e%s§8]", weaponName);
+        }
 
-        log.info("Hit detected: {} -> client from {} blocks (attacker pos: {}, client pos: {})",
-            attackerName, distance, actualAttackerPosition, clientPosition);
+        // Send message to client chat
+        sendChatMessage(String.format("§c[HIT] §f%s§7 hit you from §e%.2f§7 blocks%s",
+            attackerName, distance, weaponInfo));
+
+        log.info("Hit detected: {} -> client from {} blocks with {} (attacker pos: {}, client pos: {})",
+            attackerName, distance, weapon, actualAttackerPosition, clientPosition);
     }
 
     /**

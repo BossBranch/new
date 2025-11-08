@@ -97,6 +97,18 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return PacketSignal.UNHANDLED;
     }
 
+    // Track weapon/item changes for players
+    @Override
+    public PacketSignal handle(MobEquipmentPacket packet) {
+        // Track what item/weapon the player is holding
+        ItemData item = packet.getItem();
+        if (item != null && item.getDefinition() != null) {
+            String itemIdentifier = item.getDefinition().getIdentifier();
+            player.getHitDetector().updatePlayerWeapon(packet.getRuntimeEntityId(), itemIdentifier);
+        }
+        return PacketSignal.UNHANDLED;
+    }
+
     @Override
     public PacketSignal handle(AvailableEntityIdentifiersPacket packet) {
         proxy.saveNBT("entity_identifiers", packet.getIdentifiers());

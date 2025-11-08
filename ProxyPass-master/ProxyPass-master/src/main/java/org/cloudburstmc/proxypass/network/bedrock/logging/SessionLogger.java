@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import lombok.extern.log4j.Log4j2;
 import org.cloudburstmc.protocol.bedrock.BedrockSession;
-import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
+import org.cloudburstmc.protocol.bedrock.packet.*;
 import org.cloudburstmc.proxypass.ProxyPass;
 import org.jose4j.json.internal.json_simple.JSONObject;
 
@@ -94,9 +94,32 @@ public class SessionLogger {
         }
     }
 
+    /**
+     * Check if packet is important for hit detection
+     * Only these packets will be logged when hit-detection mode is enabled
+     */
+    private boolean isHitDetectionPacket(BedrockPacket packet) {
+        return packet instanceof AnimatePacket ||
+               packet instanceof EntityEventPacket ||
+               packet instanceof InventoryTransactionPacket ||
+               packet instanceof UpdateAttributesPacket ||
+               packet instanceof MovePlayerPacket ||
+               packet instanceof MoveEntityAbsolutePacket ||
+               packet instanceof AddPlayerPacket ||
+               packet instanceof SetEntityDataPacket ||
+               packet instanceof MobEquipmentPacket ||
+               packet instanceof StartGamePacket ||
+               packet instanceof RespawnPacket ||
+               packet instanceof SetEntityMotionPacket;
+    }
+
     public void logPacket(BedrockSession session, BedrockPacket packet, boolean upstream) {
         String logPrefix = getLogPrefix(upstream);
-        if (!proxy.isIgnoredPacket(packet.getClass())) {
+
+        // Use whitelist for hit-detection packets instead of blacklist
+        boolean shouldLog = isHitDetectionPacket(packet) && !proxy.isIgnoredPacket(packet.getClass());
+
+        if (shouldLog) {
             if (session.isLogging() && log.isTraceEnabled()) {
                 log.trace("{} {}: {}", logPrefix, session.getSocketAddress(), packet);
             }

@@ -147,6 +147,19 @@ public class UpstreamPacketHandler implements BedrockPacketHandler {
         });
     }
 
+    // Track client attacks for thorns detection
+    @Override
+    public PacketSignal handle(InventoryTransactionPacket packet) {
+        // Check if this is an attack transaction
+        if (player != null &&
+            packet.getTransactionType() == org.cloudburstmc.protocol.bedrock.data.inventory.transaction.InventoryTransactionType.ITEM_USE_ON_ENTITY &&
+            packet.getActionType() == 1) {
+            // Client is attacking entity
+            player.getHitDetector().recordClientAttack(packet.getRuntimeEntityId());
+        }
+        return PacketSignal.UNHANDLED;
+    }
+
     @Override
     public void onDisconnect(CharSequence reason) {
         // Disconnect from the bedrock server when the client disconnects
