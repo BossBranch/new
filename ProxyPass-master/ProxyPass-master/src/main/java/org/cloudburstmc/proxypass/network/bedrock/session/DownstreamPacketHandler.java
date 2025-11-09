@@ -187,8 +187,8 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 SwingInfo swing = swings.get(i);
                 long timeSinceSwing = now - swing.timestamp;
 
-                // Time window: 50-800ms (from PDF research)
-                if (timeSinceSwing > 800) {
+                // Time window: 50-1200ms (extended for high latency servers)
+                if (timeSinceSwing > 1200) {
                     break; // Older swings will also be too old
                 }
                 if (timeSinceSwing < 50) {
@@ -198,8 +198,8 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 // Calculate distance
                 double distance = calculateDistance(clientPosition, swing.position);
 
-                // Distance limit: 6 blocks (from PDF research)
-                if (distance > 6.0) {
+                // Distance limit: 8 blocks (extended for Bedrock Edition reach)
+                if (distance > 8.0) {
                     continue;
                 }
 
@@ -237,6 +237,13 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
             }
         }
 
+        // Only return candidate if score is above minimum threshold (10%)
+        // This filters out very weak candidates (e.g., random swings far away)
+        if (bestCandidate != null && bestScore < 0.1) {
+            log.debug("Best candidate score too low: {} < 0.1, ignoring", String.format("%.3f", bestScore));
+            return null;
+        }
+
         return bestCandidate;
     }
 
@@ -249,10 +256,10 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return Math.exp(-(deviation * deviation) / (2 * sigma * sigma));
     }
 
-    // Calculate distance score (closer is better, max 6 blocks)
+    // Calculate distance score (closer is better, max 8 blocks)
     private double calculateDistanceScore(double distance) {
-        // Linear: 0 blocks = 1.0, 6 blocks = 0.0
-        return Math.max(0.0, 1.0 - (distance / 6.0));
+        // Linear: 0 blocks = 1.0, 8 blocks = 0.0
+        return Math.max(0.0, 1.0 - (distance / 8.0));
     }
 
     // Calculate angle score (smaller angle is better, max 90°)

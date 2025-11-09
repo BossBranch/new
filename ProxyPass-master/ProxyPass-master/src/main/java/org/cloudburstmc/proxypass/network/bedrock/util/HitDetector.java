@@ -226,7 +226,7 @@ public class HitDetector {
         String aimInfo = "";
         if (attackerRotation != null) {
             aimAngle = calculateAimAngle(actualAttackerPosition, attackerRotation, clientPosition);
-            aimInfo = String.format(" §8[§6%.1f°§8]", aimAngle);
+            aimInfo = String.format(" [%.1f°]", aimAngle);
             log.debug("Calculated aim angle: {}°", aimAngle);
         } else {
             log.warn("Attacker rotation not available for ID: {}", attackerRuntimeId);
@@ -238,12 +238,11 @@ public class HitDetector {
         if (weapon != null && !weapon.equals("minecraft:air")) {
             // Remove minecraft: prefix and make readable
             String weaponName = weapon.replace("minecraft:", "").replace("_", " ");
-            weaponInfo = String.format(" §8[§e%s§8]", weaponName);
+            weaponInfo = String.format(" [%s]", weaponName);
         }
 
         // Send message to client chat
-        // Add space after attackerName to fix formatting (prevents "В" appearing before "hit")
-        String message = String.format("§c[HIT] §f%s §7hit you from §e%.2f§7 blocks%s%s",
+        String message = String.format("[HIT] %s hit you from %.2f blocks%s%s",
             attackerName, distance, weaponInfo, aimInfo);
         log.info("Sending hit message to client: {}", message);
         sendChatMessage(message);
