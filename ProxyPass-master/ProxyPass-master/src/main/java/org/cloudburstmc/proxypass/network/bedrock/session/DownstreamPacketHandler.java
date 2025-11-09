@@ -405,12 +405,12 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return Math.max(0.0, 1.0 - (aimAngle / 90.0));
     }
 
-    // Calculate horizontal (XZ) distance between two positions
-    // This is more accurate for PvP as it ignores height difference
+    // Calculate 3D distance between two positions
     private double calculateDistance(org.cloudburstmc.math.vector.Vector3f pos1, org.cloudburstmc.math.vector.Vector3f pos2) {
         double dx = pos1.getX() - pos2.getX();
+        double dy = pos1.getY() - pos2.getY();
         double dz = pos1.getZ() - pos2.getZ();
-        return Math.sqrt(dx * dx + dz * dz);
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     // Calculate aim angle between attacker's look direction and target
