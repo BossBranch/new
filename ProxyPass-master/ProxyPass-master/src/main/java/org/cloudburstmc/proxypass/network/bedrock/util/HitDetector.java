@@ -218,9 +218,11 @@ public class HitDetector {
         // due to player movement after the attack
         Vector3f actualAttackerPosition = attackerPosition;
 
-        // Calculate distance
+        // Calculate horizontal distance (XZ plane - ignores height)
         double distance = calculateDistance(clientPosition, actualAttackerPosition);
-        log.debug("Calculated distance: {} blocks", distance);
+        // Calculate vertical distance (Y axis - height difference)
+        double verticalDistance = calculateVerticalDistance(clientPosition, actualAttackerPosition);
+        log.debug("Calculated horizontal distance: {} blocks, vertical: {} blocks", distance, verticalDistance);
 
         // Calculate aim angle (crosshair offset) using rotation from swing moment
         double aimAngle = -1.0;
@@ -242,9 +244,15 @@ public class HitDetector {
             weaponInfo = String.format(" [%s]", weaponName);
         }
 
+        // Add vertical distance info if significant (>1 block)
+        String verticalInfo = "";
+        if (verticalDistance > 1.0) {
+            verticalInfo = String.format(" (Y±%.1f)", verticalDistance);
+        }
+
         // Send message to client chat
-        String message = String.format("[HIT] %s hit you from %.2f blocks%s%s",
-            attackerName, distance, weaponInfo, aimInfo);
+        String message = String.format("[HIT] %s hit you from %.2f blocks%s%s%s",
+            attackerName, distance, verticalInfo, weaponInfo, aimInfo);
         log.info("Sending hit message to client: {}", message);
         sendChatMessage(message);
 
@@ -252,26 +260,36 @@ public class HitDetector {
         System.out.println("==================================");
         System.out.println("[HIT DETECTED]");
         System.out.println("Attacker: " + attackerName + " (ID: " + attackerRuntimeId + ")");
-        System.out.println("Distance: " + String.format("%.2f", distance) + " blocks");
+        System.out.println("Horizontal Distance: " + String.format("%.2f", distance) + " blocks");
+        if (verticalDistance > 0.5) {
+            System.out.println("Vertical Distance: " + String.format("%.2f", verticalDistance) + " blocks");
+        }
         System.out.println("Weapon: " + (weapon != null ? weapon : "unknown"));
         if (aimAngle >= 0) {
             System.out.println("Aim Angle: " + String.format("%.1f", aimAngle) + " deg (0 deg = perfect aim)");
         }
         System.out.println("==================================");
 
-        log.info("Hit detected: {} -> client from {} blocks with {} at {} deg angle (attacker pos: {}, client pos: {})",
-            attackerName, distance, weapon, aimAngle >= 0 ? String.format("%.1f", aimAngle) : "N/A",
+        log.info("Hit detected: {} -> client from {} blocks (vertical: {} blocks) with {} at {} deg angle (attacker pos: {}, client pos: {})",
+            attackerName, distance, String.format("%.2f", verticalDistance), weapon, aimAngle >= 0 ? String.format("%.1f", aimAngle) : "N/A",
             actualAttackerPosition, clientPosition);
     }
 
     /**
-     * Calculate 3D distance between two positions
+     * Calculate horizontal (XZ) distance between two positions
+     * This is more accurate for PvP as it ignores height difference
      */
     private double calculateDistance(Vector3f pos1, Vector3f pos2) {
         double dx = pos1.getX() - pos2.getX();
-        double dy = pos1.getY() - pos2.getY();
         double dz = pos1.getZ() - pos2.getZ();
-        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+        return Math.sqrt(dx * dx + dz * dz);
+    }
+
+    /**
+     * Calculate vertical (Y) distance between two positions
+     */
+    private double calculateVerticalDistance(Vector3f pos1, Vector3f pos2) {
+        return Math.abs(pos1.getY() - pos2.getY());
     }
 
     /**

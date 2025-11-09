@@ -259,7 +259,7 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 // Distance limit: 15 blocks (extended for Bedrock Edition reach + lag compensation)
                 // Increased from 10 to catch more legitimate hits in PvP combat
                 if (distance > 15.0) {
-                    log.debug("Rejecting player {} swing: too far ({}m > 15m)",
+                    log.debug("Rejecting player {} swing: too far ({} blocks > 15 blocks)",
                         playerId, String.format("%.2f", distance));
                     continue;
                 }
@@ -324,12 +324,12 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return Math.max(0.0, 1.0 - (aimAngle / 90.0));
     }
 
-    // Calculate 3D distance between two positions
+    // Calculate horizontal (XZ) distance between two positions
+    // This is more accurate for PvP as it ignores height difference
     private double calculateDistance(org.cloudburstmc.math.vector.Vector3f pos1, org.cloudburstmc.math.vector.Vector3f pos2) {
         double dx = pos1.getX() - pos2.getX();
-        double dy = pos1.getY() - pos2.getY();
         double dz = pos1.getZ() - pos2.getZ();
-        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     // Calculate aim angle between attacker's look direction and target
