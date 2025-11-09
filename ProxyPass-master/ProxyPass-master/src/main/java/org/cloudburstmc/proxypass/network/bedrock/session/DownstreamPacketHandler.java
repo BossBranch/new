@@ -38,9 +38,19 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     private final ProxyPass proxy;
 
     private final List<NbtMap> entityProperties = new ArrayList<>();
-    private long lastSwingTime = 0;
-    private long lastSwingPlayerId = 0;
-    private org.cloudburstmc.math.vector.Vector3f lastSwingPosition = null; // Position when swing happened
+
+    // HashMap-based swing tracking (fixes race condition in multiplayer)
+    // Key: Player runtime ID, Value: List of recent swings (up to 20 per player)
+    private final Map<Long, List<SwingInfo>> playerSwings = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final int MAX_SWINGS_PER_PLAYER = 20;
+
+    // Swing information data class
+    @lombok.Value
+    private static class SwingInfo {
+        long timestamp;
+        org.cloudburstmc.math.vector.Vector3f position;
+        org.cloudburstmc.math.vector.Vector3f rotation;
+    }
 
     // Track player when they join the world
     @Override
@@ -81,11 +91,31 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     @Override
     public PacketSignal handle(AnimatePacket packet) {
         if (packet.getAction() == AnimatePacket.Action.SWING_ARM) {
-            lastSwingPlayerId = packet.getRuntimeEntityId();
-            lastSwingTime = System.currentTimeMillis();
-            // CRITICAL: Save position at moment of swing, not later!
-            lastSwingPosition = player.getHitDetector().getPlayerPosition(packet.getRuntimeEntityId());
-            log.debug("Player {} swung arm at position {}", packet.getRuntimeEntityId(), lastSwingPosition);
+            long playerId = packet.getRuntimeEntityId();
+            long timestamp = System.currentTimeMillis();
+
+            // Get position and rotation at moment of swing
+            org.cloudburstmc.math.vector.Vector3f position = player.getHitDetector().getPlayerPosition(playerId);
+            org.cloudburstmc.math.vector.Vector3f rotation = player.getHitDetector().getPlayerRotation(playerId);
+
+            if (position != null) {
+                // Add swing to player's swing history
+                playerSwings.computeIfAbsent(playerId, k -> new ArrayList<>());
+                List<SwingInfo> swings = playerSwings.get(playerId);
+
+                // Add new swing
+                swings.add(new SwingInfo(timestamp, position, rotation));
+
+                // Keep only last MAX_SWINGS_PER_PLAYER swings (circular buffer behavior)
+                if (swings.size() > MAX_SWINGS_PER_PLAYER) {
+                    swings.remove(0); // Remove oldest
+                }
+
+                log.debug("Player {} swung arm at position {} rotation {} (total swings tracked: {})",
+                    playerId, position, rotation, swings.size());
+            } else {
+                log.warn("Position not available for player {} swing", playerId);
+            }
         }
         return PacketSignal.UNHANDLED;
     }
@@ -105,24 +135,184 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
 
             log.debug("Client received HURT event! victimId={}, clientId={}", victimId, clientRuntimeId);
 
-            // If someone swung recently (within 500ms), they probably hit us
-            long timeSinceSwing = System.currentTimeMillis() - lastSwingTime;
-            log.debug("Time since last swing: {}ms from player {}", timeSinceSwing, lastSwingPlayerId);
+            // Find best attacker using multi-criteria scoring
+            AttackerCandidate bestAttacker = findBestAttacker();
 
-            if (lastSwingPlayerId != 0 && timeSinceSwing < 500) {
-                // Use position saved at moment of swing (not current position!)
-                if (lastSwingPosition != null) {
-                    log.debug("Calling onHitReceived for attacker {} at swing position {}", lastSwingPlayerId, lastSwingPosition);
-                    player.getHitDetector().onHitReceived(lastSwingPlayerId, lastSwingPosition);
-                } else {
-                    log.warn("Swing position not saved for ID: {}", lastSwingPlayerId);
-                }
+            if (bestAttacker != null) {
+                log.info("Best attacker found: player {} with score {} (time={}ms, distance={}, angle={}°)",
+                    bestAttacker.playerId,
+                    String.format("%.3f", bestAttacker.totalScore),
+                    bestAttacker.timeSinceSwing,
+                    String.format("%.2f", bestAttacker.distance),
+                    String.format("%.1f", bestAttacker.aimAngle));
+
+                player.getHitDetector().onHitReceived(
+                    bestAttacker.playerId,
+                    bestAttacker.swingPosition
+                );
             } else {
-                log.debug("No recent swing or swing too old. lastSwingPlayerId={}, timeSince={}ms",
-                    lastSwingPlayerId, timeSinceSwing);
+                log.debug("No valid attacker found (no recent swings within time/distance limits)");
             }
         }
         return PacketSignal.UNHANDLED;
+    }
+
+    // Multi-criteria scoring to find best attacker candidate
+    private AttackerCandidate findBestAttacker() {
+        long now = System.currentTimeMillis();
+        long clientRuntimeId = player.getHitDetector().getClientRuntimeId();
+        org.cloudburstmc.math.vector.Vector3f clientPosition = player.getHitDetector().getPlayerPosition(clientRuntimeId);
+
+        if (clientPosition == null) {
+            log.warn("Client position not available for attacker detection");
+            return null;
+        }
+
+        AttackerCandidate bestCandidate = null;
+        double bestScore = 0.0;
+
+        // Iterate through all players and their recent swings
+        for (Map.Entry<Long, List<SwingInfo>> entry : playerSwings.entrySet()) {
+            long playerId = entry.getKey();
+
+            // Skip client's own swings
+            if (playerId == clientRuntimeId) {
+                continue;
+            }
+
+            List<SwingInfo> swings = entry.getValue();
+
+            // Check each recent swing (most recent first)
+            for (int i = swings.size() - 1; i >= 0; i--) {
+                SwingInfo swing = swings.get(i);
+                long timeSinceSwing = now - swing.timestamp;
+
+                // Time window: 50-800ms (from PDF research)
+                if (timeSinceSwing > 800) {
+                    break; // Older swings will also be too old
+                }
+                if (timeSinceSwing < 50) {
+                    continue; // Too soon (packet processing delay)
+                }
+
+                // Calculate distance
+                double distance = calculateDistance(clientPosition, swing.position);
+
+                // Distance limit: 6 blocks (from PDF research)
+                if (distance > 6.0) {
+                    continue;
+                }
+
+                // Calculate aim angle
+                double aimAngle = swing.rotation != null
+                    ? calculateAimAngle(swing.position, swing.rotation, clientPosition)
+                    : 90.0; // Default to 90° if rotation unavailable
+
+                // Multi-criteria scoring (from PDF):
+                // - Time: 40% weight, optimal at 100ms
+                // - Distance: 35% weight, closer is better
+                // - Angle: 25% weight, smaller angle is better
+
+                double timeScore = calculateTimeScore(timeSinceSwing);
+                double distanceScore = calculateDistanceScore(distance);
+                double angleScore = calculateAngleScore(aimAngle);
+
+                double totalScore = (timeScore * 0.40) + (distanceScore * 0.35) + (angleScore * 0.25);
+
+                log.debug("Candidate: player {} swing at T-{}ms, dist={}, angle={}° → scores: time={}, dist={}, angle={}, TOTAL={}",
+                    playerId, timeSinceSwing,
+                    String.format("%.2f", distance),
+                    String.format("%.1f", aimAngle),
+                    String.format("%.3f", timeScore),
+                    String.format("%.3f", distanceScore),
+                    String.format("%.3f", angleScore),
+                    String.format("%.3f", totalScore));
+
+                if (totalScore > bestScore) {
+                    bestScore = totalScore;
+                    bestCandidate = new AttackerCandidate(
+                        playerId, swing.position, timeSinceSwing, distance, aimAngle, totalScore
+                    );
+                }
+            }
+        }
+
+        return bestCandidate;
+    }
+
+    // Calculate time score (optimal at 100ms)
+    private double calculateTimeScore(long timeSinceSwing) {
+        // Gaussian curve centered at 100ms
+        double optimal = 100.0;
+        double sigma = 150.0; // Spread
+        double deviation = timeSinceSwing - optimal;
+        return Math.exp(-(deviation * deviation) / (2 * sigma * sigma));
+    }
+
+    // Calculate distance score (closer is better, max 6 blocks)
+    private double calculateDistanceScore(double distance) {
+        // Linear: 0 blocks = 1.0, 6 blocks = 0.0
+        return Math.max(0.0, 1.0 - (distance / 6.0));
+    }
+
+    // Calculate angle score (smaller angle is better, max 90°)
+    private double calculateAngleScore(double aimAngle) {
+        // Linear: 0° = 1.0, 90° = 0.0
+        return Math.max(0.0, 1.0 - (aimAngle / 90.0));
+    }
+
+    // Calculate 3D distance between two positions
+    private double calculateDistance(org.cloudburstmc.math.vector.Vector3f pos1, org.cloudburstmc.math.vector.Vector3f pos2) {
+        double dx = pos1.getX() - pos2.getX();
+        double dy = pos1.getY() - pos2.getY();
+        double dz = pos1.getZ() - pos2.getZ();
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    // Calculate aim angle between attacker's look direction and target
+    private double calculateAimAngle(org.cloudburstmc.math.vector.Vector3f attackerPos,
+                                     org.cloudburstmc.math.vector.Vector3f attackerRotation,
+                                     org.cloudburstmc.math.vector.Vector3f targetPos) {
+        float pitch = attackerRotation.getX();
+        float yaw = attackerRotation.getY();
+
+        double yawRad = Math.toRadians(yaw);
+        double pitchRad = Math.toRadians(pitch);
+
+        // Calculate look direction vector
+        double lookX = -Math.sin(yawRad) * Math.cos(pitchRad);
+        double lookY = -Math.sin(pitchRad);
+        double lookZ = Math.cos(yawRad) * Math.cos(pitchRad);
+
+        // Calculate direction to target
+        double toTargetX = targetPos.getX() - attackerPos.getX();
+        double toTargetY = targetPos.getY() - attackerPos.getY();
+        double toTargetZ = targetPos.getZ() - attackerPos.getZ();
+
+        // Normalize
+        double targetLength = Math.sqrt(toTargetX * toTargetX + toTargetY * toTargetY + toTargetZ * toTargetZ);
+        if (targetLength < 0.001) return 0.0;
+
+        toTargetX /= targetLength;
+        toTargetY /= targetLength;
+        toTargetZ /= targetLength;
+
+        // Dot product and angle
+        double dotProduct = lookX * toTargetX + lookY * toTargetY + lookZ * toTargetZ;
+        dotProduct = Math.max(-1.0, Math.min(1.0, dotProduct));
+
+        return Math.toDegrees(Math.acos(dotProduct));
+    }
+
+    // Attacker candidate data class
+    @lombok.Value
+    private static class AttackerCandidate {
+        long playerId;
+        org.cloudburstmc.math.vector.Vector3f swingPosition;
+        long timeSinceSwing;
+        double distance;
+        double aimAngle;
+        double totalScore;
     }
 
     // Track weapon/item changes for players
