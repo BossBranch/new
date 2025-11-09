@@ -28,6 +28,7 @@ import org.cloudburstmc.proxypass.network.bedrock.util.RecipeUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 @Log4j2
@@ -43,6 +44,11 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     // Key: Player runtime ID, Value: List of recent swings (up to 20 per player)
     private final Map<Long, List<SwingInfo>> playerSwings = new java.util.concurrent.ConcurrentHashMap<>();
     private static final int MAX_SWINGS_PER_PLAYER = 20;
+
+    // Delayed HURT event processing (fixes packet ordering issues)
+    private final ScheduledExecutorService delayedHurtExecutor = Executors.newSingleThreadScheduledExecutor();
+    private final Set<Long> pendingHurtChecks = ConcurrentHashMap.newKeySet();
+    private static final long DELAYED_CHECK_MS = 250; // Wait 250ms for swings to arrive
 
     // Swing information data class
     @lombok.Value
@@ -135,26 +141,51 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
 
             log.debug("Client received HURT event! victimId={}, clientId={}", victimId, clientRuntimeId);
 
-            // Find best attacker using multi-criteria scoring
-            AttackerCandidate bestAttacker = findBestAttacker();
-
-            if (bestAttacker != null) {
-                log.info("Best attacker found: player {} with score {} (time={}ms, distance={}, angle={} deg)",
-                    bestAttacker.playerId,
-                    String.format("%.3f", bestAttacker.totalScore),
-                    bestAttacker.timeSinceSwing,
-                    String.format("%.2f", bestAttacker.distance),
-                    String.format("%.1f", bestAttacker.aimAngle));
-
-                player.getHitDetector().onHitReceived(
-                    bestAttacker.playerId,
-                    bestAttacker.swingPosition
-                );
-            } else {
-                log.debug("No valid attacker found (no recent swings within time/distance limits)");
-            }
+            // Try to find attacker immediately
+            processHurtEvent(false);
         }
         return PacketSignal.UNHANDLED;
+    }
+
+    // Process HURT event (immediate or delayed)
+    private void processHurtEvent(boolean isDelayedCheck) {
+        long clientRuntimeId = player.getHitDetector().getClientRuntimeId();
+        long timestamp = System.currentTimeMillis();
+
+        // Find best attacker using multi-criteria scoring
+        AttackerCandidate bestAttacker = findBestAttacker();
+
+        if (bestAttacker != null) {
+            // Remove from pending checks if this was delayed
+            pendingHurtChecks.remove(timestamp);
+
+            log.info("Best attacker found{}: player {} with score {} (time={}ms, distance={}, angle={} deg)",
+                isDelayedCheck ? " (delayed check)" : "",
+                bestAttacker.playerId,
+                String.format("%.3f", bestAttacker.totalScore),
+                bestAttacker.timeSinceSwing,
+                String.format("%.2f", bestAttacker.distance),
+                String.format("%.1f", bestAttacker.aimAngle));
+
+            player.getHitDetector().onHitReceived(
+                bestAttacker.playerId,
+                bestAttacker.swingPosition
+            );
+        } else if (!isDelayedCheck) {
+            // No attacker found on immediate check - schedule delayed check
+            log.debug("No valid attacker found immediately, scheduling delayed check in {}ms", DELAYED_CHECK_MS);
+
+            pendingHurtChecks.add(timestamp);
+            delayedHurtExecutor.schedule(() -> {
+                if (pendingHurtChecks.remove(timestamp)) {
+                    log.debug("Executing delayed HURT check...");
+                    processHurtEvent(true);
+                }
+            }, DELAYED_CHECK_MS, TimeUnit.MILLISECONDS);
+        } else {
+            // Delayed check also failed
+            log.debug("No valid attacker found even after delayed check (no recent swings within time/distance limits)");
+        }
     }
 
     // Multi-criteria scoring to find best attacker candidate
@@ -187,8 +218,8 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 SwingInfo swing = swings.get(i);
                 long timeSinceSwing = now - swing.timestamp;
 
-                // Time window: 50-1200ms (extended for high latency servers)
-                if (timeSinceSwing > 1200) {
+                // Time window: 50-1500ms (extended for packet ordering delays and high latency)
+                if (timeSinceSwing > 1500) {
                     break; // Older swings will also be too old
                 }
                 if (timeSinceSwing < 50) {
