@@ -182,10 +182,11 @@ public class HitDetector {
      * Called when someone attacks the client
      *
      * @param attackerRuntimeId The attacker's runtime entity ID
-     * @param attackerPosition The position where attack originated (from packet)
+     * @param attackerPosition The position where attack originated (from swing)
+     * @param attackerRotation The rotation at moment of attack (from swing)
      */
-    public void onHitReceived(long attackerRuntimeId, Vector3f attackerPosition) {
-        log.debug("onHitReceived called! attackerId={}, position={}", attackerRuntimeId, attackerPosition);
+    public void onHitReceived(long attackerRuntimeId, Vector3f attackerPosition, Vector3f attackerRotation) {
+        log.debug("onHitReceived called! attackerId={}, position={}, rotation={}", attackerRuntimeId, attackerPosition, attackerRotation);
 
         // Check if this is thorns damage (we recently attacked this entity)
         if (isThornsHit(attackerRuntimeId)) {
@@ -210,18 +211,18 @@ public class HitDetector {
 
         // Get attacker info
         String attackerName = getPlayerUsername(attackerRuntimeId);
-        Vector3f trackedAttackerPosition = getPlayerPosition(attackerRuntimeId);
-        log.debug("Attacker name: {}, tracked position: {}", attackerName, trackedAttackerPosition);
+        log.debug("Attacker name: {}", attackerName);
 
-        // Use tracked position if available, otherwise use position from packet
-        Vector3f actualAttackerPosition = trackedAttackerPosition != null ? trackedAttackerPosition : attackerPosition;
+        // IMPORTANT: Use position from swing (attackerPosition parameter) which is the attacker's
+        // position at the moment of the attack, NOT the current tracked position which may be different
+        // due to player movement after the attack
+        Vector3f actualAttackerPosition = attackerPosition;
 
         // Calculate distance
         double distance = calculateDistance(clientPosition, actualAttackerPosition);
         log.debug("Calculated distance: {} blocks", distance);
 
-        // Calculate aim angle (crosshair offset)
-        Vector3f attackerRotation = getPlayerRotation(attackerRuntimeId);
+        // Calculate aim angle (crosshair offset) using rotation from swing moment
         double aimAngle = -1.0;
         String aimInfo = "";
         if (attackerRotation != null) {

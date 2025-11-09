@@ -48,7 +48,7 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     // Delayed HURT event processing (fixes packet ordering issues)
     private final ScheduledExecutorService delayedHurtExecutor = Executors.newSingleThreadScheduledExecutor();
     private final Set<Long> pendingHurtChecks = ConcurrentHashMap.newKeySet();
-    private static final long DELAYED_CHECK_MS = 250; // Wait 250ms for swings to arrive
+    private static final long DELAYED_CHECK_MS = 300; // Wait 300ms for swings to arrive
 
     // Swing information data class
     @lombok.Value
@@ -169,7 +169,8 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
 
             player.getHitDetector().onHitReceived(
                 bestAttacker.playerId,
-                bestAttacker.swingPosition
+                bestAttacker.swingPosition,
+                bestAttacker.swingRotation
             );
         } else if (!isDelayedCheck) {
             // No attacker found on immediate check - schedule delayed check
@@ -218,8 +219,9 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 SwingInfo swing = swings.get(i);
                 long timeSinceSwing = now - swing.timestamp;
 
-                // Time window: 0-1500ms (no minimum delay - packets can arrive in any order in Bedrock)
-                if (timeSinceSwing > 1500) {
+                // Time window: 0-2500ms (no minimum delay - packets can arrive in any order in Bedrock)
+                // Increased from 1500ms to catch more legitimate hits in laggy conditions
+                if (timeSinceSwing > 2500) {
                     break; // Older swings will also be too old
                 }
                 // NOTE: No minimum time check - AnimatePacket can arrive almost simultaneously with HURT
@@ -227,8 +229,9 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 // Calculate distance
                 double distance = calculateDistance(clientPosition, swing.position);
 
-                // Distance limit: 8 blocks (extended for Bedrock Edition reach)
-                if (distance > 8.0) {
+                // Distance limit: 10 blocks (extended for Bedrock Edition reach + lag compensation)
+                // Increased from 8 to catch more legitimate hits
+                if (distance > 10.0) {
                     continue;
                 }
 
@@ -237,16 +240,16 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                     ? calculateAimAngle(swing.position, swing.rotation, clientPosition)
                     : 90.0; // Default to 90 deg if rotation unavailable
 
-                // Multi-criteria scoring (from PDF):
-                // - Time: 45% weight, optimal at 100ms
-                // - Distance: 40% weight, closer is better
-                // - Angle: 15% weight, smaller angle is better
+                // Multi-criteria scoring (adjusted weights for better accuracy):
+                // - Time: 30% weight, optimal at 100ms (reduced from 45%)
+                // - Distance: 50% weight, closer is better (increased from 40%)
+                // - Angle: 20% weight, smaller angle is better (increased from 15%)
 
                 double timeScore = calculateTimeScore(timeSinceSwing);
                 double distanceScore = calculateDistanceScore(distance);
                 double angleScore = calculateAngleScore(aimAngle);
 
-                double totalScore = (timeScore * 0.45) + (distanceScore * 0.40) + (angleScore * 0.15);
+                double totalScore = (timeScore * 0.30) + (distanceScore * 0.50) + (angleScore * 0.20);
 
                 log.debug("Candidate: player {} swing at T-{}ms, dist={}, angle={} deg → scores: time={}, dist={}, angle={}, TOTAL={}",
                     playerId, timeSinceSwing,
@@ -260,19 +263,14 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 if (totalScore > bestScore) {
                     bestScore = totalScore;
                     bestCandidate = new AttackerCandidate(
-                        playerId, swing.position, timeSinceSwing, distance, aimAngle, totalScore
+                        playerId, swing.position, swing.rotation, timeSinceSwing, distance, aimAngle, totalScore
                     );
                 }
             }
         }
 
-        // Only return candidate if score is above minimum threshold (10%)
-        // This filters out very weak candidates (e.g., random swings far away)
-        if (bestCandidate != null && bestScore < 0.1) {
-            log.debug("Best candidate score too low: {} < 0.1, ignoring", String.format("%.3f", bestScore));
-            return null;
-        }
-
+        // Return the best candidate even if score is low - better to show info than nothing
+        // In laggy conditions or with poor aim, low scores can still be legitimate hits
         return bestCandidate;
     }
 
@@ -285,10 +283,10 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return Math.exp(-(deviation * deviation) / (2 * sigma * sigma));
     }
 
-    // Calculate distance score (closer is better, max 8 blocks)
+    // Calculate distance score (closer is better, max 10 blocks)
     private double calculateDistanceScore(double distance) {
-        // Linear: 0 blocks = 1.0, 8 blocks = 0.0
-        return Math.max(0.0, 1.0 - (distance / 8.0));
+        // Linear: 0 blocks = 1.0, 10 blocks = 0.0
+        return Math.max(0.0, 1.0 - (distance / 10.0));
     }
 
     // Calculate angle score (smaller angle is better, max 90 deg)
@@ -345,6 +343,7 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     private static class AttackerCandidate {
         long playerId;
         org.cloudburstmc.math.vector.Vector3f swingPosition;
+        org.cloudburstmc.math.vector.Vector3f swingRotation;
         long timeSinceSwing;
         double distance;
         double aimAngle;
