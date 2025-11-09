@@ -29,27 +29,8 @@ public class HitDetector {
     // Time window for Thorns detection (milliseconds) - based on research
     private static final long THORNS_DETECTION_WINDOW = 100;
 
-    // Anti-crit settings
-    private boolean antiCritEnabled = true; // Enable/disable anti-crit system
-    private static final double MAX_LEGIT_DISTANCE = 6.0; // Max reach in Minecraft
-    private static final double MAX_LEGIT_ANGLE = 45.0; // Max aim deviation for legit player
-    private static final double SUSPICIOUS_DISTANCE = 4.5; // Distance threshold for combo check
-    private static final double SUSPICIOUS_ANGLE = 30.0; // Angle threshold for combo check
-
     public HitDetector(ProxyPlayerSession session) {
         this.session = session;
-    }
-
-    /**
-     * Enable or disable anti-crit system
-     */
-    public void setAntiCritEnabled(boolean enabled) {
-        this.antiCritEnabled = enabled;
-        log.info("Anti-crit system: {}", enabled ? "ENABLED" : "DISABLED");
-    }
-
-    public boolean isAntiCritEnabled() {
-        return antiCritEnabled;
     }
 
     /**
@@ -198,36 +179,6 @@ public class HitDetector {
     }
 
     /**
-     * Check if hit should be blocked based on anti-crit criteria
-     * @return null if legit, or block reason string if suspicious
-     */
-    private String shouldBlockHit(double distance, double aimAngle, String attackerName) {
-        if (!antiCritEnabled) {
-            return null; // Anti-crit disabled
-        }
-
-        // Criterion 1: Distance too far (impossible reach)
-        if (distance > MAX_LEGIT_DISTANCE) {
-            return String.format("§c[ANTICRIT] §fBlocked hit from §e%s§f: distance §c%.2f§f blocks (max: %.1f)",
-                attackerName, distance, MAX_LEGIT_DISTANCE);
-        }
-
-        // Criterion 2: Aim angle too bad (only if we have rotation data)
-        if (aimAngle >= 0 && aimAngle > MAX_LEGIT_ANGLE) {
-            return String.format("§c[ANTICRIT] §fBlocked hit from §e%s§f: aim angle §c%.1f°§f (max: %.1f°)",
-                attackerName, aimAngle, MAX_LEGIT_ANGLE);
-        }
-
-        // Criterion 3: Combo suspicious (moderate distance + bad aim)
-        if (aimAngle >= 0 && distance > SUSPICIOUS_DISTANCE && aimAngle > SUSPICIOUS_ANGLE) {
-            return String.format("§c[ANTICRIT] §fBlocked hit from §e%s§f: suspicious combo (§c%.2f§f blocks + §c%.1f°§f aim)",
-                attackerName, distance, aimAngle);
-        }
-
-        return null; // Legit hit
-    }
-
-    /**
      * Called when someone attacks the client
      *
      * @param attackerRuntimeId The attacker's runtime entity ID
@@ -279,25 +230,6 @@ public class HitDetector {
             log.debug("Calculated aim angle: {}°", aimAngle);
         } else {
             log.warn("Attacker rotation not available for ID: {}", attackerRuntimeId);
-        }
-
-        // ANTI-CRIT CHECK: Block suspicious hits
-        String blockReason = shouldBlockHit(distance, aimAngle, attackerName);
-        if (blockReason != null) {
-            log.warn("Hit BLOCKED by anti-crit: {}", blockReason);
-            sendChatMessage(blockReason);
-
-            // Log blocked hit details
-            System.out.println("==================================");
-            System.out.println("[HIT BLOCKED BY ANTICRIT]");
-            System.out.println("Attacker: " + attackerName + " (ID: " + attackerRuntimeId + ")");
-            System.out.println("Distance: " + String.format("%.2f", distance) + " blocks");
-            if (aimAngle >= 0) {
-                System.out.println("Aim Angle: " + String.format("%.1f", aimAngle) + "°");
-            }
-            System.out.println("Reason: " + blockReason);
-            System.out.println("==================================");
-            return; // Don't show normal hit message
         }
 
         // Get attacker's weapon
