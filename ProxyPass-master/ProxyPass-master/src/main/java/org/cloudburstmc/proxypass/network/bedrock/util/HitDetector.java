@@ -18,12 +18,16 @@ public class HitDetector {
 
     private final ProxyPlayerSession session;
     private final Map<Long, PlayerInfo> players = new ConcurrentHashMap<>();
-    private final Map<Long, Long> recentClientAttacks = new ConcurrentHashMap<>();
     private final Map<Long, String> playerWeapons = new ConcurrentHashMap<>();
+
+    // Thorns detection: track client's recent attacks
+    private Long lastClientAttackTime = null;
+    private Long lastClientAttackTarget = null;
+
     private long clientRuntimeId = 0;
 
-    // Time window to ignore thorns damage after client attack (milliseconds)
-    private static final long THORNS_IGNORE_WINDOW = 300;
+    // Time window for Thorns detection (milliseconds) - based on research
+    private static final long THORNS_DETECTION_WINDOW = 100;
 
     public HitDetector(ProxyPlayerSession session) {
         this.session = session;
@@ -120,8 +124,9 @@ public class HitDetector {
      * Used to detect thorns damage
      */
     public void recordClientAttack(long targetRuntimeId) {
-        recentClientAttacks.put(targetRuntimeId, System.currentTimeMillis());
-        log.debug("Client attacked entity: {}", targetRuntimeId);
+        lastClientAttackTime = System.currentTimeMillis();
+        lastClientAttackTarget = targetRuntimeId;
+        log.debug("Client attacked entity: {} at time: {}", targetRuntimeId, lastClientAttackTime);
     }
 
     /**
@@ -133,18 +138,36 @@ public class HitDetector {
     }
 
     /**
-     * Check if damage is likely from thorns (client recently attacked this entity)
+     * Check if damage is from Thorns enchantment
+     * Based on PDF research: Thorns damage occurs 10-100ms AFTER client attacks,
+     * without InventoryTransactionPacket or AnimatePacket from the victim
      */
     private boolean isThornsHit(long attackerRuntimeId) {
-        Long lastAttackTime = recentClientAttacks.get(attackerRuntimeId);
-        if (lastAttackTime != null) {
-            long timeSinceAttack = System.currentTimeMillis() - lastAttackTime;
-            if (timeSinceAttack < THORNS_IGNORE_WINDOW) {
-                // This is thorns damage - remove from tracking
-                recentClientAttacks.remove(attackerRuntimeId);
-                return true;
-            }
+        // Did client attack someone recently?
+        if (lastClientAttackTime == null || lastClientAttackTarget == null) {
+            return false;
         }
+
+        long now = System.currentTimeMillis();
+        long timeSinceClientAttack = now - lastClientAttackTime;
+
+        // Check if:
+        // 1. Client attacked someone within THORNS_DETECTION_WINDOW (100ms)
+        // 2. The "attacker" is the same entity that client attacked
+        if (timeSinceClientAttack < THORNS_DETECTION_WINDOW &&
+            attackerRuntimeId == lastClientAttackTarget) {
+
+            String attackerName = getPlayerUsername(attackerRuntimeId);
+            log.info("Thorns damage detected from: {} (client attacked them {}ms ago)",
+                attackerName, timeSinceClientAttack);
+
+            // Clear the attack record
+            lastClientAttackTime = null;
+            lastClientAttackTarget = null;
+
+            return true;
+        }
+
         return false;
     }
 
@@ -200,24 +223,6 @@ public class HitDetector {
             log.debug("Calculated aim angle: {}°", aimAngle);
         } else {
             log.warn("Attacker rotation not available for ID: {}", attackerRuntimeId);
-        }
-
-        // Filter out impossible hits (potions, thorns, fire damage, etc.)
-        // Maximum realistic distance: 10 blocks (considering lag/ping)
-        // Maximum realistic aim angle: 45 degrees (player must be looking at target)
-        final double MAX_HIT_DISTANCE = 10.0;
-        final double MAX_AIM_ANGLE = 45.0;
-
-        if (distance > MAX_HIT_DISTANCE) {
-            log.info("Ignored hit from {} at {} blocks (too far, likely potion/thorns/fire damage)",
-                attackerName, String.format("%.2f", distance));
-            return;
-        }
-
-        if (aimAngle >= 0 && aimAngle > MAX_AIM_ANGLE) {
-            log.info("Ignored hit from {} with {}° aim angle (not looking at target, likely potion/thorns/fire damage)",
-                attackerName, String.format("%.1f", aimAngle));
-            return;
         }
 
         // Get attacker's weapon
