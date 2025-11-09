@@ -387,17 +387,30 @@ public class HitDetector {
 
     /**
      * Send chat message to client
+     * Sends both SYSTEM message (chat) and TIP message (action bar) for maximum visibility
      */
     private void sendChatMessage(String message) {
-        TextPacket textPacket = new TextPacket();
-        textPacket.setType(TextPacket.Type.RAW);
-        textPacket.setNeedsTranslation(false);
-        textPacket.setMessage(message);
-        textPacket.setXuid("");
-        textPacket.setPlatformChatId("");
+        // Method 1: System message in chat
+        TextPacket systemPacket = new TextPacket();
+        systemPacket.setType(TextPacket.Type.SYSTEM);
+        systemPacket.setNeedsTranslation(false);
+        systemPacket.setMessage(message);
+        systemPacket.setSourceName("");
+        systemPacket.setXuid("");
+        systemPacket.setPlatformChatId("");
+        session.getUpstream().sendPacket(systemPacket);
 
-        // Send to client (upstream)
-        session.getUpstream().sendPacket(textPacket);
+        // Method 2: Tip message (action bar above hotbar) for important alerts
+        // This is more visible and doesn't clutter chat
+        TextPacket tipPacket = new TextPacket();
+        tipPacket.setType(TextPacket.Type.TIP);
+        tipPacket.setNeedsTranslation(false);
+        tipPacket.setMessage(message);
+        tipPacket.setXuid("");
+        tipPacket.setPlatformChatId("");
+        session.getUpstream().sendPacket(tipPacket);
+
+        log.debug("Chat message sent to client (SYSTEM + TIP): {}", message);
     }
 
     /**
