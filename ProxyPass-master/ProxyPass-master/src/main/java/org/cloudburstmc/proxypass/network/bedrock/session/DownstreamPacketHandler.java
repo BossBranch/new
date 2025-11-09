@@ -218,13 +218,11 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 SwingInfo swing = swings.get(i);
                 long timeSinceSwing = now - swing.timestamp;
 
-                // Time window: 50-1500ms (extended for packet ordering delays and high latency)
+                // Time window: 0-1500ms (no minimum delay - packets can arrive in any order in Bedrock)
                 if (timeSinceSwing > 1500) {
                     break; // Older swings will also be too old
                 }
-                if (timeSinceSwing < 50) {
-                    continue; // Too soon (packet processing delay)
-                }
+                // NOTE: No minimum time check - AnimatePacket can arrive almost simultaneously with HURT
 
                 // Calculate distance
                 double distance = calculateDistance(clientPosition, swing.position);
