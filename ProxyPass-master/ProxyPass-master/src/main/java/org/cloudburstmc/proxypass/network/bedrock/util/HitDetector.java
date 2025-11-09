@@ -190,22 +190,34 @@ public class HitDetector {
         String attackerName = getPlayerUsername(attackerRuntimeId);
         log.debug("Attacker name: {}", attackerName);
 
-        // IMPORTANT: Use position from swing (attackerPosition parameter) which is the attacker's
-        // position at the moment of the attack, NOT the current tracked position which may be different
-        // due to player movement after the attack
-        Vector3f actualAttackerPosition = attackerPosition;
+        // CRITICAL FIX: For DISTANCE, use CURRENT position (player may have moved after swing)
+        // For AIM ANGLE, use swing position (angle is calculated at moment of attack)
+        Vector3f currentAttackerPosition = getPlayerPosition(attackerRuntimeId);
+        if (currentAttackerPosition == null) {
+            log.warn("Attacker current position not available for ID: {}, using swing position as fallback", attackerRuntimeId);
+            currentAttackerPosition = attackerPosition; // Fallback to swing position
+        }
 
-        // Calculate horizontal distance (XZ plane - ignores height)
-        double distance = calculateDistance(clientPosition, actualAttackerPosition);
-        // Calculate vertical distance (Y axis - height difference)
-        double verticalDistance = calculateVerticalDistance(clientPosition, actualAttackerPosition);
-        log.debug("Calculated horizontal distance: {} blocks, vertical: {} blocks", distance, verticalDistance);
+        // Calculate horizontal distance (XZ plane - ignores height) using CURRENT position
+        double distance = calculateDistance(clientPosition, currentAttackerPosition);
+        // Calculate vertical distance (Y axis - height difference) using CURRENT position
+        double verticalDistance = calculateVerticalDistance(clientPosition, currentAttackerPosition);
+        log.debug("Calculated horizontal distance: {} blocks, vertical: {} blocks (using current position)", distance, verticalDistance);
 
-        // Calculate aim angle (crosshair offset) using rotation from swing moment
+        // Log position comparison for debugging
+        if (!currentAttackerPosition.equals(attackerPosition)) {
+            double swingDistance = calculateDistance(clientPosition, attackerPosition);
+            log.debug("Position changed! Swing position distance: {}, Current position distance: {} (diff: {})",
+                String.format("%.2f", swingDistance),
+                String.format("%.2f", distance),
+                String.format("%.2f", Math.abs(distance - swingDistance)));
+        }
+
+        // Calculate aim angle (crosshair offset) using rotation and position from swing moment
         double aimAngle = -1.0;
         String aimInfo = "";
         if (attackerRotation != null) {
-            aimAngle = calculateAimAngle(actualAttackerPosition, attackerRotation, clientPosition);
+            aimAngle = calculateAimAngle(attackerPosition, attackerRotation, clientPosition);
             aimInfo = String.format(" [%.1f deg]", aimAngle);
             log.debug("Calculated aim angle: {} deg", aimAngle);
         } else {
