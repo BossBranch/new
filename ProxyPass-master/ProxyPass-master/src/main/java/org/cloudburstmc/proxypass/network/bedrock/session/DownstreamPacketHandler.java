@@ -139,7 +139,7 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
             AttackerCandidate bestAttacker = findBestAttacker();
 
             if (bestAttacker != null) {
-                log.info("Best attacker found: player {} with score {} (time={}ms, distance={}, angle={}°)",
+                log.info("Best attacker found: player {} with score {} (time={}ms, distance={}, angle={} deg)",
                     bestAttacker.playerId,
                     String.format("%.3f", bestAttacker.totalScore),
                     bestAttacker.timeSinceSwing,
@@ -206,20 +206,20 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 // Calculate aim angle
                 double aimAngle = swing.rotation != null
                     ? calculateAimAngle(swing.position, swing.rotation, clientPosition)
-                    : 90.0; // Default to 90° if rotation unavailable
+                    : 90.0; // Default to 90 deg if rotation unavailable
 
                 // Multi-criteria scoring (from PDF):
-                // - Time: 40% weight, optimal at 100ms
-                // - Distance: 35% weight, closer is better
-                // - Angle: 25% weight, smaller angle is better
+                // - Time: 45% weight, optimal at 100ms
+                // - Distance: 40% weight, closer is better
+                // - Angle: 15% weight, smaller angle is better
 
                 double timeScore = calculateTimeScore(timeSinceSwing);
                 double distanceScore = calculateDistanceScore(distance);
                 double angleScore = calculateAngleScore(aimAngle);
 
-                double totalScore = (timeScore * 0.40) + (distanceScore * 0.35) + (angleScore * 0.25);
+                double totalScore = (timeScore * 0.45) + (distanceScore * 0.40) + (angleScore * 0.15);
 
-                log.debug("Candidate: player {} swing at T-{}ms, dist={}, angle={}° → scores: time={}, dist={}, angle={}, TOTAL={}",
+                log.debug("Candidate: player {} swing at T-{}ms, dist={}, angle={} deg → scores: time={}, dist={}, angle={}, TOTAL={}",
                     playerId, timeSinceSwing,
                     String.format("%.2f", distance),
                     String.format("%.1f", aimAngle),
@@ -262,9 +262,9 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return Math.max(0.0, 1.0 - (distance / 8.0));
     }
 
-    // Calculate angle score (smaller angle is better, max 90°)
+    // Calculate angle score (smaller angle is better, max 90 deg)
     private double calculateAngleScore(double aimAngle) {
-        // Linear: 0° = 1.0, 90° = 0.0
+        // Linear: 0 deg = 1.0, 90 deg = 0.0
         return Math.max(0.0, 1.0 - (aimAngle / 90.0));
     }
 

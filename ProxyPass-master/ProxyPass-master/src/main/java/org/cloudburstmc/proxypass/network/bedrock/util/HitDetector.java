@@ -226,8 +226,8 @@ public class HitDetector {
         String aimInfo = "";
         if (attackerRotation != null) {
             aimAngle = calculateAimAngle(actualAttackerPosition, attackerRotation, clientPosition);
-            aimInfo = String.format(" [%.1f°]", aimAngle);
-            log.debug("Calculated aim angle: {}°", aimAngle);
+            aimInfo = String.format(" [%.1f deg]", aimAngle);
+            log.debug("Calculated aim angle: {} deg", aimAngle);
         } else {
             log.warn("Attacker rotation not available for ID: {}", attackerRuntimeId);
         }
@@ -254,11 +254,11 @@ public class HitDetector {
         System.out.println("Distance: " + String.format("%.2f", distance) + " blocks");
         System.out.println("Weapon: " + (weapon != null ? weapon : "unknown"));
         if (aimAngle >= 0) {
-            System.out.println("Aim Angle: " + String.format("%.1f", aimAngle) + "° (0° = perfect aim)");
+            System.out.println("Aim Angle: " + String.format("%.1f", aimAngle) + " deg (0 deg = perfect aim)");
         }
         System.out.println("==================================");
 
-        log.info("Hit detected: {} -> client from {} blocks with {} at {}° angle (attacker pos: {}, client pos: {})",
+        log.info("Hit detected: {} -> client from {} blocks with {} at {} deg angle (attacker pos: {}, client pos: {})",
             attackerName, distance, weapon, aimAngle >= 0 ? String.format("%.1f", aimAngle) : "N/A",
             actualAttackerPosition, clientPosition);
     }
@@ -276,7 +276,7 @@ public class HitDetector {
     /**
      * Calculate aim angle (crosshair offset) in degrees
      * Returns the angle between attacker's look direction and direction to target
-     * 0° = perfect aim, higher = worse aim
+     * 0 deg = perfect aim, higher = worse aim
      */
     private double calculateAimAngle(Vector3f attackerPos, Vector3f attackerRotation, Vector3f targetPos) {
         // Get pitch and yaw from rotation (rotation = pitch, yaw, headYaw)
