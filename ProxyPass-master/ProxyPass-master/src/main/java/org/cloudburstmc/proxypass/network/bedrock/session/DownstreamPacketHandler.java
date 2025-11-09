@@ -97,11 +97,31 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     // Track other players' movement (for other entities, server sends MoveEntityAbsolutePacket)
     @Override
     public PacketSignal handle(MoveEntityAbsolutePacket packet) {
+        long runtimeId = packet.getRuntimeEntityId();
+        long clientRuntimeId = player.getHitDetector().getClientRuntimeId();
+
+        // Skip client's own entity (already handled by MovePlayerPacket)
+        if (runtimeId == clientRuntimeId) {
+            return PacketSignal.UNHANDLED;
+        }
+
+        // Update position for other entities
         player.getHitDetector().updatePlayerPositionAndRotation(
-            packet.getRuntimeEntityId(),
+            runtimeId,
             packet.getPosition(),
             packet.getRotation()
         );
+
+        // Log position updates for tracked players (debug)
+        String username = player.getHitDetector().getPlayerUsername(runtimeId);
+        if (username != null && !username.equals("Unknown")) {
+            log.debug("Player {} position updated: ({}, {}, {})",
+                username,
+                String.format("%.2f", packet.getPosition().getX()),
+                String.format("%.2f", packet.getPosition().getY()),
+                String.format("%.2f", packet.getPosition().getZ()));
+        }
+
         return PacketSignal.UNHANDLED;
     }
 
