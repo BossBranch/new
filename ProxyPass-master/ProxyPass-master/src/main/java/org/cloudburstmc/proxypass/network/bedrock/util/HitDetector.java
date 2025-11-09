@@ -202,6 +202,24 @@ public class HitDetector {
             log.warn("Attacker rotation not available for ID: {}", attackerRuntimeId);
         }
 
+        // Filter out impossible hits (potions, thorns, fire damage, etc.)
+        // Maximum realistic distance: 10 blocks (considering lag/ping)
+        // Maximum realistic aim angle: 45 degrees (player must be looking at target)
+        final double MAX_HIT_DISTANCE = 10.0;
+        final double MAX_AIM_ANGLE = 45.0;
+
+        if (distance > MAX_HIT_DISTANCE) {
+            log.info("Ignored hit from {} at {} blocks (too far, likely potion/thorns/fire damage)",
+                attackerName, String.format("%.2f", distance));
+            return;
+        }
+
+        if (aimAngle >= 0 && aimAngle > MAX_AIM_ANGLE) {
+            log.info("Ignored hit from {} with {}° aim angle (not looking at target, likely potion/thorns/fire damage)",
+                attackerName, String.format("%.1f", aimAngle));
+            return;
+        }
+
         // Get attacker's weapon
         String weapon = playerWeapons.get(attackerRuntimeId);
         String weaponInfo = "";
