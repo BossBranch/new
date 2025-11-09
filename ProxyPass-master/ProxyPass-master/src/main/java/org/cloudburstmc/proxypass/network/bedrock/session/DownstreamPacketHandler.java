@@ -71,14 +71,26 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return PacketSignal.UNHANDLED;
     }
 
-    // Update player position when they move
+    // Update player position when they move (from server to client)
     @Override
     public PacketSignal handle(MovePlayerPacket packet) {
+        long runtimeId = packet.getRuntimeEntityId();
+        long clientRuntimeId = player.getHitDetector().getClientRuntimeId();
+
         player.getHitDetector().updatePlayerPositionAndRotation(
-            packet.getRuntimeEntityId(),
+            runtimeId,
             packet.getPosition(),
             packet.getRotation()
         );
+
+        // Log only client position updates from server
+        if (runtimeId == clientRuntimeId) {
+            log.debug("Client position updated from DOWNSTREAM/server: ({}, {}, {})",
+                String.format("%.2f", packet.getPosition().getX()),
+                String.format("%.2f", packet.getPosition().getY()),
+                String.format("%.2f", packet.getPosition().getZ()));
+        }
+
         return PacketSignal.UNHANDLED;
     }
 

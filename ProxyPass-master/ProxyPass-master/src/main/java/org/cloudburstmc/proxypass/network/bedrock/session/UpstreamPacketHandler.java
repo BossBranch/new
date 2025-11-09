@@ -160,6 +160,25 @@ public class UpstreamPacketHandler implements BedrockPacketHandler {
         return PacketSignal.UNHANDLED;
     }
 
+    // Update client position when they move (from client to server)
+    @Override
+    public PacketSignal handle(MovePlayerPacket packet) {
+        if (player != null) {
+            // Update client position in HitDetector
+            long clientRuntimeId = player.getHitDetector().getClientRuntimeId();
+            player.getHitDetector().updatePlayerPositionAndRotation(
+                clientRuntimeId,
+                packet.getPosition(),
+                packet.getRotation()
+            );
+            log.debug("Client position updated from UPSTREAM: ({}, {}, {})",
+                String.format("%.2f", packet.getPosition().getX()),
+                String.format("%.2f", packet.getPosition().getY()),
+                String.format("%.2f", packet.getPosition().getZ()));
+        }
+        return PacketSignal.UNHANDLED;
+    }
+
     @Override
     public void onDisconnect(CharSequence reason) {
         // Disconnect from the bedrock server when the client disconnects
