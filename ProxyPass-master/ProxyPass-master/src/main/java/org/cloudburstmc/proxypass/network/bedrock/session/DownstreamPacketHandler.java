@@ -40,6 +40,7 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
     private final List<NbtMap> entityProperties = new ArrayList<>();
     private long lastSwingTime = 0;
     private long lastSwingPlayerId = 0;
+    private org.cloudburstmc.math.vector.Vector3f lastSwingPosition = null; // Position when swing happened
 
     // Track player when they join the world
     @Override
@@ -82,7 +83,9 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         if (packet.getAction() == AnimatePacket.Action.SWING_ARM) {
             lastSwingPlayerId = packet.getRuntimeEntityId();
             lastSwingTime = System.currentTimeMillis();
-            log.debug("Player {} swung arm", packet.getRuntimeEntityId());
+            // CRITICAL: Save position at moment of swing, not later!
+            lastSwingPosition = player.getHitDetector().getPlayerPosition(packet.getRuntimeEntityId());
+            log.debug("Player {} swung arm at position {}", packet.getRuntimeEntityId(), lastSwingPosition);
         }
         return PacketSignal.UNHANDLED;
     }
@@ -107,13 +110,12 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
             log.debug("Time since last swing: {}ms from player {}", timeSinceSwing, lastSwingPlayerId);
 
             if (lastSwingPlayerId != 0 && timeSinceSwing < 500) {
-                // Get attacker position
-                org.cloudburstmc.math.vector.Vector3f attackerPos = player.getHitDetector().getPlayerPosition(lastSwingPlayerId);
-                if (attackerPos != null) {
-                    log.debug("Calling onHitReceived for attacker {}", lastSwingPlayerId);
-                    player.getHitDetector().onHitReceived(lastSwingPlayerId, attackerPos);
+                // Use position saved at moment of swing (not current position!)
+                if (lastSwingPosition != null) {
+                    log.debug("Calling onHitReceived for attacker {} at swing position {}", lastSwingPlayerId, lastSwingPosition);
+                    player.getHitDetector().onHitReceived(lastSwingPlayerId, lastSwingPosition);
                 } else {
-                    log.warn("Attacker position not found for ID: {}", lastSwingPlayerId);
+                    log.warn("Swing position not saved for ID: {}", lastSwingPlayerId);
                 }
             } else {
                 log.debug("No recent swing or swing too old. lastSwingPlayerId={}, timeSince={}ms",

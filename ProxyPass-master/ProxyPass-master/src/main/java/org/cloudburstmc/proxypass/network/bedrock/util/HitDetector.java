@@ -242,7 +242,8 @@ public class HitDetector {
         }
 
         // Send message to client chat
-        String message = String.format("§c[HIT] §f%s§7 hit you from §e%.2f§7 blocks%s%s",
+        // Add space after attackerName to fix formatting (prevents "В" appearing before "hit")
+        String message = String.format("§c[HIT] §f%s §7hit you from §e%.2f§7 blocks%s%s",
             attackerName, distance, weaponInfo, aimInfo);
         log.info("Sending hit message to client: {}", message);
         sendChatMessage(message);
