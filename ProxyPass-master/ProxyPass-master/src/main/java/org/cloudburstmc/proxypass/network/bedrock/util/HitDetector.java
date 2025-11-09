@@ -115,7 +115,14 @@ public class HitDetector {
     public void removePlayer(long runtimeId) {
         players.remove(runtimeId);
         playerWeapons.remove(runtimeId);
-        recentClientAttacks.remove(runtimeId);
+
+        // Clear client attack tracking if this was the target
+        if (lastClientAttackTarget != null && lastClientAttackTarget == runtimeId) {
+            lastClientAttackTime = null;
+            lastClientAttackTarget = null;
+            log.debug("Cleared client attack tracking for removed player: {}", runtimeId);
+        }
+
         log.debug("Player removed from tracking: {}", runtimeId);
     }
 
