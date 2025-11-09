@@ -184,7 +184,23 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         long clientRuntimeId = player.getHitDetector().getClientRuntimeId();
         long timestamp = System.currentTimeMillis();
 
-        // Find best attacker using multi-criteria scoring
+        // THORNS DETECTION: Check if client recently attacked someone (thorns don't have swing!)
+        ThornsCandidate thornsCandidate = checkForThorns(timestamp);
+        if (thornsCandidate != null) {
+            log.info("THORNS detected from player {} at distance {} blocks (client attacked them {}ms ago)",
+                thornsCandidate.playerId,
+                String.format("%.2f", thornsCandidate.distance),
+                thornsCandidate.timeSinceClientAttack);
+
+            player.getHitDetector().onHitReceived(
+                thornsCandidate.playerId,
+                thornsCandidate.position,
+                thornsCandidate.rotation
+            );
+            return; // Don't search for swings - thorns don't swing!
+        }
+
+        // Find best attacker using multi-criteria scoring (for normal attacks)
         AttackerCandidate bestAttacker = findBestAttacker();
 
         if (bestAttacker != null) {
@@ -219,6 +235,51 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
             // Delayed check also failed
             log.debug("No valid attacker found even after delayed check (no recent swings within time/distance limits)");
         }
+    }
+
+    // Check if damage is from Thorns enchantment
+    // Thorns damage occurs shortly after client attacks, WITHOUT swing from victim
+    private ThornsCandidate checkForThorns(long now) {
+        // Get client's last attack info from HitDetector
+        Long lastAttackTime = player.getHitDetector().getLastClientAttackTime();
+        Long lastAttackTarget = player.getHitDetector().getLastClientAttackTarget();
+
+        if (lastAttackTime == null || lastAttackTarget == null) {
+            return null; // Client didn't attack anyone recently
+        }
+
+        long timeSinceClientAttack = now - lastAttackTime;
+
+        // Thorns damage happens 10-100ms after client's attack
+        if (timeSinceClientAttack > 100) {
+            return null; // Too late for thorns
+        }
+
+        // Get position of the entity that client attacked
+        long clientRuntimeId = player.getHitDetector().getClientRuntimeId();
+        org.cloudburstmc.math.vector.Vector3f clientPosition = player.getHitDetector().getPlayerPosition(clientRuntimeId);
+        org.cloudburstmc.math.vector.Vector3f targetPosition = player.getHitDetector().getPlayerPosition(lastAttackTarget);
+        org.cloudburstmc.math.vector.Vector3f targetRotation = player.getHitDetector().getPlayerRotation(lastAttackTarget);
+
+        if (clientPosition == null || targetPosition == null) {
+            log.warn("Position not available for thorns check (client={}, target={})", clientPosition, targetPosition);
+            return null;
+        }
+
+        // Calculate distance - for thorns it should be melee range (< 6 blocks)
+        double distance = calculateDistance(clientPosition, targetPosition);
+
+        log.debug("Thorns check: client attacked {} {}ms ago, distance={} blocks",
+            lastAttackTarget, timeSinceClientAttack, String.format("%.2f", distance));
+
+        // Thorns can only happen in melee range (< 6 blocks)
+        if (distance > 6.0) {
+            log.debug("Rejecting thorns: distance too far ({} > 6 blocks)", String.format("%.2f", distance));
+            return null;
+        }
+
+        // This is thorns damage!
+        return new ThornsCandidate(lastAttackTarget, targetPosition, targetRotation, timeSinceClientAttack, distance);
     }
 
     // Multi-criteria scoring to find best attacker candidate
@@ -397,6 +458,16 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         double distance;
         double aimAngle;
         double totalScore;
+    }
+
+    // Thorns damage candidate data class
+    @lombok.Value
+    private static class ThornsCandidate {
+        long playerId;
+        org.cloudburstmc.math.vector.Vector3f position;
+        org.cloudburstmc.math.vector.Vector3f rotation;
+        long timeSinceClientAttack;
+        double distance;
     }
 
     // Track weapon/item changes for players

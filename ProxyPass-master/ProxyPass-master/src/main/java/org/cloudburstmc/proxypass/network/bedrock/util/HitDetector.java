@@ -137,6 +137,20 @@ public class HitDetector {
     }
 
     /**
+     * Get last client attack time (for thorns detection)
+     */
+    public Long getLastClientAttackTime() {
+        return lastClientAttackTime;
+    }
+
+    /**
+     * Get last client attack target (for thorns detection)
+     */
+    public Long getLastClientAttackTarget() {
+        return lastClientAttackTarget;
+    }
+
+    /**
      * Update player's equipped weapon
      */
     public void updatePlayerWeapon(long runtimeId, String itemIdentifier) {
@@ -144,39 +158,8 @@ public class HitDetector {
         log.debug("Player {} weapon updated: {}", runtimeId, itemIdentifier);
     }
 
-    /**
-     * Check if damage is from Thorns enchantment
-     * Based on PDF research: Thorns damage occurs 10-100ms AFTER client attacks,
-     * without InventoryTransactionPacket or AnimatePacket from the victim
-     */
-    private boolean isThornsHit(long attackerRuntimeId) {
-        // Did client attack someone recently?
-        if (lastClientAttackTime == null || lastClientAttackTarget == null) {
-            return false;
-        }
-
-        long now = System.currentTimeMillis();
-        long timeSinceClientAttack = now - lastClientAttackTime;
-
-        // Check if:
-        // 1. Client attacked someone within THORNS_DETECTION_WINDOW (100ms)
-        // 2. The "attacker" is the same entity that client attacked
-        if (timeSinceClientAttack < THORNS_DETECTION_WINDOW &&
-            attackerRuntimeId == lastClientAttackTarget) {
-
-            String attackerName = getPlayerUsername(attackerRuntimeId);
-            log.info("Thorns damage detected from: {} (client attacked them {}ms ago)",
-                attackerName, timeSinceClientAttack);
-
-            // Clear the attack record
-            lastClientAttackTime = null;
-            lastClientAttackTarget = null;
-
-            return true;
-        }
-
-        return false;
-    }
+    // Thorns detection moved to DownstreamPacketHandler.checkForThorns()
+    // (removed isThornsHit method - thorns are now detected before searching for swings)
 
     /**
      * Called when someone attacks the client
@@ -188,14 +171,8 @@ public class HitDetector {
     public void onHitReceived(long attackerRuntimeId, Vector3f attackerPosition, Vector3f attackerRotation) {
         log.debug("onHitReceived called! attackerId={}, position={}, rotation={}", attackerRuntimeId, attackerPosition, attackerRotation);
 
-        // Check if this is thorns damage (we recently attacked this entity)
-        if (isThornsHit(attackerRuntimeId)) {
-            String attackerName = getPlayerUsername(attackerRuntimeId);
-            log.info("Thorns damage ignored from: {}", attackerName);
-            // Optionally show thorns message
-            // sendChatMessage(String.format("§6[THORNS] §7%s", attackerName));
-            return;
-        }
+        // Note: Thorns detection now happens in DownstreamPacketHandler.checkForThorns()
+        // before this method is called, so we don't need to check here
 
         // Get client position
         log.debug("Getting client position for ID: {}", clientRuntimeId);
