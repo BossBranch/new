@@ -200,6 +200,19 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
             return null;
         }
 
+        log.debug("Finding attacker: client at position ({}, {}, {})",
+            String.format("%.2f", clientPosition.getX()),
+            String.format("%.2f", clientPosition.getY()),
+            String.format("%.2f", clientPosition.getZ()));
+
+        // Count total swings for debugging
+        int totalSwings = 0;
+        for (List<SwingInfo> swings : playerSwings.values()) {
+            totalSwings += swings.size();
+        }
+        log.debug("Total players with swings: {}, total swing records: {}",
+            playerSwings.size(), totalSwings);
+
         AttackerCandidate bestCandidate = null;
         double bestScore = 0.0;
 
@@ -222,6 +235,8 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 // Time window: 0-2500ms (no minimum delay - packets can arrive in any order in Bedrock)
                 // Increased from 1500ms to catch more legitimate hits in laggy conditions
                 if (timeSinceSwing > 2500) {
+                    log.debug("Rejecting player {} swing: too old ({}ms > 2500ms)",
+                        playerId, timeSinceSwing);
                     break; // Older swings will also be too old
                 }
                 // NOTE: No minimum time check - AnimatePacket can arrive almost simultaneously with HURT
@@ -229,9 +244,11 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
                 // Calculate distance
                 double distance = calculateDistance(clientPosition, swing.position);
 
-                // Distance limit: 10 blocks (extended for Bedrock Edition reach + lag compensation)
-                // Increased from 8 to catch more legitimate hits
-                if (distance > 10.0) {
+                // Distance limit: 15 blocks (extended for Bedrock Edition reach + lag compensation)
+                // Increased from 10 to catch more legitimate hits in PvP combat
+                if (distance > 15.0) {
+                    log.debug("Rejecting player {} swing: too far ({}m > 15m)",
+                        playerId, String.format("%.2f", distance));
                     continue;
                 }
 
@@ -283,10 +300,10 @@ public class DownstreamPacketHandler implements BedrockPacketHandler {
         return Math.exp(-(deviation * deviation) / (2 * sigma * sigma));
     }
 
-    // Calculate distance score (closer is better, max 10 blocks)
+    // Calculate distance score (closer is better, max 15 blocks)
     private double calculateDistanceScore(double distance) {
-        // Linear: 0 blocks = 1.0, 10 blocks = 0.0
-        return Math.max(0.0, 1.0 - (distance / 10.0));
+        // Linear: 0 blocks = 1.0, 15 blocks = 0.0
+        return Math.max(0.0, 1.0 - (distance / 15.0));
     }
 
     // Calculate angle score (smaller angle is better, max 90 deg)
