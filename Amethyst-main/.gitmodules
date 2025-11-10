@@ -1,0 +1,3 @@
+[submodule "AmethystAPI/packages/libhat"]
+	path = AmethystAPI/packages/libhat
+	url = https://github.com/AmethystAPI/libhat.git

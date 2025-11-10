@@ -1,0 +1,29 @@
+{
+    "format_version": 2,
+    "header": {
+        "name": "Amethyst Runtime",
+        "description": "By FrederoxDev",
+        "uuid": "e29472c3-4b84-448a-a845-9da7cb3979aa",
+        "version": [
+            1,
+            0,
+            0
+        ],
+        "min_engine_version": [
+            1,
+            21,
+            0
+        ]
+    },
+    "modules": [
+        {
+            "type": "resources",
+            "uuid": "8942b6b3-1ce9-43be-b3a0-8c719747e55d",
+            "version": [
+                1,
+                0,
+                0
+            ]
+        }
+    ]
+}

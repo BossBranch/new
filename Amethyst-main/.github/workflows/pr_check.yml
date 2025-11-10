@@ -1,0 +1,51 @@
+name: PR Build Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      # Checkout current mod
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      # Clone AmethystAPI into /Amethyst, so it can use exactly the same xmake setup as regularr mods
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: Amethyst
+          fetch-depth: 1
+          submodules: recursive
+
+      # Install xmake if not cached
+      - name: Install xmake
+        shell: powershell
+        run: |
+          if (!(Get-Command xmake -ErrorAction SilentlyContinue)) {
+              choco install xmake -y
+          } else {
+              Write-Host "xmake already installed, skipping..."
+          }
+
+      # Configure with xmake
+      - name: Configure with xmake
+        shell: powershell
+        run: |
+          Import-Module $env:ChocolateyInstall\helpers\chocolateyProfile.psm1
+          refreshenv
+          xmake f -y --automated_build=y
+
+      # Build with xmake
+      - name: Build with xmake
+        shell: powershell
+        run: |
+          Import-Module $env:ChocolateyInstall\helpers\chocolateyProfile.psm1
+          refreshenv
+          xmake

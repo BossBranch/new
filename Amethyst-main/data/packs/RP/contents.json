@@ -1,0 +1,13 @@
+{
+    "content": [
+        {
+            "path": "manifest.json"
+        },
+        {
+            "path": "ui/start_screen.json"
+        },
+        {
+            "path": "pack_icon.png"
+        }
+    ]
+}

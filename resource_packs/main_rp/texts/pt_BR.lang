@@ -1,0 +1,7 @@
+key.amethyst.show_advanced_item_info=Mostrar detalhes do item
+text.amethyst.item_data=§8Dados: {}§r
+text.amethyst.block_tags=§8Tags de Bloco:§r
+text.amethyst.item_tags=§8Tags de Item:§r
+text.amethyst.nbt_count=§8{} componente(s)§r
+text.amethyst.mods_loaded={} mod{} carregado{}
+action.amethyst.show_advanced_item_info=§8Segure §u{}§r§8 para ver detalhes§r

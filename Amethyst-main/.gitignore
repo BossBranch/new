@@ -1,0 +1,17 @@
+*/x64
+*/build
+*/.vscode/
+*\build
+*\.vs
+*.env
+dist
+**/.xmake
+**/vc140.pdb
+**/vsxmake2022
+/generated
+/.vscode/compile_commands.json
+/.importer
+/Amethyst
+compile_commands.json
+help/makefile
+makefile
